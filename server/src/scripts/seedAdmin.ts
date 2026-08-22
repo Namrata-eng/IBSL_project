@@ -1,0 +1,2 @@
+import '../config/env.js'; import bcrypt from 'bcryptjs'; import {connectDb,Admin} from '../models/index.js';
+const [name,email,password]=process.argv.slice(2);if(!name||!email||!password){console.error('Usage: npm run seed-admin --workspace server -- "Name" admin@example.com secure-password');process.exit(1)}await connectDb();await Admin.findOneAndUpdate({email:email.toLowerCase()},{name,email:email.toLowerCase(),passwordHash:await bcrypt.hash(password,12),role:'admin'},{upsert:true,new:true});console.log('Admin created.');process.exit(0);
