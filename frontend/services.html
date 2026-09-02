@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Services | ISKCON Temple</title>
+<link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+
+<div class="navbar">
+  <div class="brand">ISKCON Temple</div>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="donate.html">Donate</a>
+    <a href="services.html" class="active">Services</a>
+    <a href="contact.html">Contact</a>
+  </nav>
+</div>
+
+<section class="hero">
+  <p class="eyebrow">Daily Worship</p>
+  <h1>Temple Services</h1>
+  <p>Aartis, darshan timings and seva opportunities offered at the temple.</p>
+</section>
+<svg class="arch-divider" viewBox="0 0 1200 60" preserveAspectRatio="none" aria-hidden="true">
+  <path d="M0,60 L0,30 Q50,0 100,30 Q150,0 200,30 Q250,0 300,30 Q350,0 400,30 Q450,0 500,30 Q550,0 600,30 Q650,0 700,30 Q750,0 800,30 Q850,0 900,30 Q950,0 1000,30 Q1050,0 1100,30 Q1150,0 1200,30 L1200,60 Z" fill="currentColor"/>
+</svg>
+
+<section class="section">
+
+  <!--
+    Admin mode: append ?admin=1 to this page's URL to reveal the add/edit/delete
+    controls (e.g. services.html?admin=1). Swap the isAdminUser() check in
+    services.js for your teammate's real logged-in-admin check once auth is ready.
+  -->
+  <div class="admin-toolbar" id="adminToolbar" style="display:none;">
+    <button class="btn-outline" id="toggleFormBtn">+ Add Service</button>
+  </div>
+
+  <div id="message"></div>
+
+  <form class="card form-card" id="serviceForm" style="display:none; margin-bottom:40px;">
+    <div class="form-grid two-col">
+      <input type="text" id="svcTitle" placeholder="Service title" style="grid-column:1/-1;" required />
+      <textarea id="svcDescription" placeholder="Description" rows="3" style="grid-column:1/-1;" required></textarea>
+      <input type="text" id="svcImage" placeholder="Image URL" />
+      <input type="text" id="svcTimings" placeholder="Timings e.g. 6:00 AM - 8:00 PM" />
+      <label class="checkbox-label" style="grid-column:1/-1;">
+        <input type="checkbox" id="svcActive" checked /> Visible on public site
+      </label>
+      <button type="submit" class="btn-primary" style="grid-column:1/-1;" id="svcSubmitBtn">Add service</button>
+    </div>
+  </form>
+
+  <div class="services-grid" id="servicesGrid">
+    <p style="text-align:center; color:rgba(59,15,20,0.6); grid-column:1/-1;">Loading services…</p>
+  </div>
+</section>
+
+<footer>&copy; 2026 ISKCON Temple. All rights reserved.</footer>
+
+<script src="assets/js/config.js"></script>
+<script src="assets/js/services.js"></script>
+</body>
+</html>
