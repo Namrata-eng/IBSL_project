@@ -1,0 +1,135 @@
+.festival-notif-dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: min(390px, 92vw);
+  background: rgba(8, 18, 28, 0.97);
+  border: 1px solid var(--hairline-gold);
+  border-radius: 20px;
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.75), 0 0 30px rgba(212, 175, 55, 0.15);
+  z-index: 120;
+  padding: 20px;
+  animation: notifBloom 0.25s var(--ease-out);
+  color: var(--ink);
+}
+
+@keyframes notifBloom {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.festival-notif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+  margin-bottom: 14px;
+}
+
+.festival-notif-header h4 {
+  font-size: 15.5px;
+  font-weight: 500;
+  color: var(--gold);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.festival-notif-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.festival-notif-item {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(14, 28, 44, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s ease;
+}
+
+.festival-notif-item:hover {
+  background: rgba(22, 42, 64, 0.9);
+  border-color: var(--gold);
+}
+
+.festival-notif-item.is-today {
+  border: 1px solid #f59e0b;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.18) 0%, rgba(14, 28, 44, 0.85) 100%);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
+}
+
+.festival-notif-item.is-tomorrow {
+  border: 1px solid #38bdf8;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.15) 0%, rgba(14, 28, 44, 0.85) 100%);
+}
+
+.notif-badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+
+.notif-badge.today {
+  background: #f59e0b;
+  color: #1a0b02;
+}
+
+.notif-badge.tomorrow {
+  background: #38bdf8;
+  color: #031e2e;
+}
+
+.notif-badge.upcoming {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ink-soft);
+}
+
+.festival-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  max-width: 420px;
+  background: rgba(8, 18, 30, 0.96);
+  border: 1px solid var(--gold);
+  border-radius: 16px;
+  padding: 16px 20px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 24px rgba(245, 176, 65, 0.25);
+  z-index: 110;
+  animation: toastSlideUp 0.4s var(--ease-out);
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+@keyframes toastSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -1,0 +1,105 @@
+.devotional-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.bg-ambient-light-1 {
+  position: absolute;
+  top: 5%;
+  left: 10%;
+  width: 550px;
+  height: 550px;
+  background: radial-gradient(circle, rgba(212, 175, 55, 0.09) 0%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(50px);
+}
+
+.bg-ambient-light-2 {
+  position: absolute;
+  bottom: 15%;
+  right: 8%;
+  width: 650px;
+  height: 650px;
+  background: radial-gradient(circle, rgba(2, 132, 199, 0.1) 0%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(60px);
+}
+
+.bg-ambient-light-3 {
+  position: absolute;
+  top: 45%;
+  right: 25%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(244, 114, 182, 0.06) 0%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(45px);
+}
+
+.bg-mandala-wrapper {
+  position: absolute;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.bg-mandala-top-right {
+  top: -80px;
+  right: -80px;
+}
+
+.bg-mandala-bottom-left {
+  bottom: -100px;
+  left: -80px;
+}
+
+.mandala-rotate-slow {
+  animation: rotateMandala 90s linear infinite;
+  transform-origin: center;
+}
+
+.mandala-rotate-reverse {
+  animation: rotateMandalaReverse 110s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes rotateMandala {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes rotateMandalaReverse {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+.floating-mote {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.65;
+  animation: floatMote 14s infinite linear;
+}
+
+@keyframes floatMote {
+  0% {
+    transform: translateY(100vh) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.75;
+  }
+  85% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translateY(-100px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes bellPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); box-shadow: 0 0 14px rgba(245, 158, 11, 1); }
+}

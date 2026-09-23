@@ -3,3 +3,19 @@ dist
 .env
 .env.local
 uploads
+*.tsbuildinfo
+
+# Local team copies
+Isckon-website-gayatri/
+
+# Stray git metadata files in workspace root
+/HEAD
+/config
+/description
+/hooks
+/index
+/info
+/logs
+/objects
+/packed-refs
+/refs
