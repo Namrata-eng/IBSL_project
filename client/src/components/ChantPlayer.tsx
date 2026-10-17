@@ -6,17 +6,19 @@ export function ChantPlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    // Real Krishna Bansuri flute melody - royalty-free spiritual audio
+    // Divine flute melody - local audio with royalty-free spiritual audio fallbacks
     const fluteUrls = [
+      '/flute.mp3',
+      '/flute.mpeg',
       'https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3',  // Flute meditation
       'https://cdn.pixabay.com/download/audio/2021/11/13/audio_cb4f3d7aa5.mp3',  // Bansuri ambient
       'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',           // Fallback
     ];
-    
+
     const audio = new Audio(fluteUrls[0]);
     audio.loop = true;
     audio.volume = 0.4;
-    
+
     // Try fallback URLs if primary fails
     let urlIndex = 0;
     audio.onerror = () => {
@@ -26,7 +28,7 @@ export function ChantPlayer() {
         audio.load();
       }
     };
-    
+
     audioRef.current = audio;
 
     return () => {

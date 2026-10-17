@@ -2,29 +2,37 @@ import React, { useState } from 'react';
 import PageBanner from '../PageBanner';
 import { SendIcon, PeacockFeatherIcon, LotusIcon } from '../icons';
 
+const TEMPLE_WHATSAPP_NUMBER = '919082860210'; // no + or spaces, per wa.me format
+
 export function Contact() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
-    const f = new FormData(e.currentTarget);
-    const payload = Object.fromEntries(f);
 
-    try {
-      await fetch('/api/inquiries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      setDone(true);
-      (e.target as HTMLFormElement).reset();
-    } catch {
-      setDone(true);
-    } finally {
-      setLoading(false);
-    }
+    const form = e.currentTarget;
+    const f = new FormData(form);
+    const name = (f.get('name') as string) || '';
+    const contact = (f.get('contact') as string) || '';
+    const message = (f.get('message') as string) || '';
+
+    // Build a readable, pre-filled WhatsApp message
+    const whatsappText =
+      `Hare Krishna! I would like to send an inquiry.\n\n` +
+      `*Name:* ${name}\n` +
+      `*Contact:* ${contact}\n` +
+      `*Message:* ${message}`;
+
+    const whatsappUrl = `https://wa.me/${TEMPLE_WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappText)}`;
+
+    // Open WhatsApp in a new tab with the message pre-filled
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+
+    setDone(true);
+    form.reset();
+    setLoading(false);
   };
 
   return (
@@ -106,12 +114,12 @@ export function Contact() {
           </label>
 
           <button className="btn btn--pearl" disabled={loading}>
-            {loading ? 'Sending…' : 'Send Inquiry Message'}
+            {loading ? 'Opening WhatsApp…' : 'Send Inquiry Message'}
           </button>
 
           {done && (
             <p className="success">
-              Hare Krishna! Your inquiry has been received. Our temple sevaks will connect with you shortly.
+              Hare Krishna! Your inquiry has opened in WhatsApp — please tap send there to reach our temple sevaks.
             </p>
           )}
         </form>
