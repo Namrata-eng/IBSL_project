@@ -4,7 +4,6 @@ import './ChantPlayer.css';
 export function ChantPlayer() {
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-
   useEffect(() => {
     // Custom flute audio from public folder
     const fluteUrls = [

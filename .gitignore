@@ -1,7 +1,15 @@
 node_modules
+node_modules/
+client/node_modules/
+server/node_modules/
+backend/node_modules/
 dist
+client/dist/
+client/.vite/
 .env
 .env.local
+server/.env
+backend/.env
 uploads
 *.tsbuildinfo
 
