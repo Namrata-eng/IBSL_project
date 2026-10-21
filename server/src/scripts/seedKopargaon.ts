@@ -252,6 +252,12 @@ async function seed() {
       category: 'Annadaan',
       description: 'Distributing warm, sanctified prasadam to all.',
     },
+    {
+      title: 'Deepotsava & Evening Gaura Aarti',
+      imageUrl: 'https://images.unsplash.com/photo-1605629921711-2f6b00c6bbf4?auto=format&fit=crop&w=1200&q=85',
+      category: 'Deity Darshan',
+      description: 'Hundreds of ghee lamps offered during the sacred month of Damodara.',
+    },
   ]);
 
   console.log('✅ ISKCON Kopargaon Database Seeded Successfully!');

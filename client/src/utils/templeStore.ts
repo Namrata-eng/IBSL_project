@@ -124,8 +124,16 @@ const DEFAULT_GALLERY: GalleryPhoto[] = [
   },
 ];
 
-const EVENTS_KEY = 'iskcon_kopargaon_events_v4';
-const GALLERY_KEY = 'iskcon_kopargaon_gallery_v4';
+const EVENTS_KEY = 'iskcon_kopargaon_events_v6';
+const GALLERY_KEY = 'iskcon_kopargaon_gallery_v6';
+
+// Automatically purge outdated legacy cache containing dummy placeholder photos
+try {
+  ['v1', 'v2', 'v3', 'v4', 'v5'].forEach(v => {
+    localStorage.removeItem(`iskcon_kopargaon_events_${v}`);
+    localStorage.removeItem(`iskcon_kopargaon_gallery_${v}`);
+  });
+} catch {}
 
 export async function fetchEvents(): Promise<TempleEvent[]> {
   try {
@@ -144,7 +152,8 @@ export async function fetchEvents(): Promise<TempleEvent[]> {
   const cached = localStorage.getItem(EVENTS_KEY);
   if (cached) {
     try {
-      return JSON.parse(cached);
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     } catch {}
   }
 
@@ -234,7 +243,16 @@ export async function fetchGallery(): Promise<GalleryPhoto[]> {
   const cached = localStorage.getItem(GALLERY_KEY);
   if (cached) {
     try {
-      return JSON.parse(cached);
+      const parsed: GalleryPhoto[] = JSON.parse(cached);
+      // Check if cache contains legacy unwanted placeholder images
+      const hasLegacyPlaceholder = parsed.some(
+        p =>
+          p.imageUrl?.includes('photo-1596704017254') ||
+          p.imageUrl?.includes('photo-1514565131')
+      );
+      if (!hasLegacyPlaceholder && Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
     } catch {}
   }
 
