@@ -1,17 +1,14 @@
 import React, { useState } from 'react';
 import PageBanner from '../PageBanner';
 import { HeartIcon, TilakMark, LotusIcon } from '../icons';
+import DonationForm from '../DonationForm';
 
-// ── Razorpay payment link – replace with your actual Razorpay payment link ──
-// Get your link from: https://dashboard.razorpay.com → Payment Links
-const RAZORPAY_LINK = 'https://pages.razorpay.com/WWo5n2F8kQuickDonate'; // Replace with actual link
+// ── Razorpay payment link ──
+const RAZORPAY_LINK = 'https://pages.razorpay.com/WWo5n2F8kQuickDonate';
 
 function openRazorpay(amount?: string) {
-  // If you have amount-specific links, map them here
-  // Otherwise the main Razorpay link opens where user can enter amount
   const link = RAZORPAY_LINK;
   if (amount) {
-    // Opens Razorpay with pre-filled amount (supported in payment pages)
     window.open(`${link}?amount=${parseInt(amount) * 100}`, '_blank', 'noopener');
   } else {
     window.open(link, '_blank', 'noopener');
@@ -26,6 +23,11 @@ export function Donate() {
   const [phone, setPhone] = useState('');
   const [pan, setPan] = useState('');
 
+  // Donation Verification Modal State
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [verifyAmount, setVerifyAmount] = useState('1100');
+  const [verifyType, setVerifyType] = useState('General Seva');
+
   const presetAmounts = ['501', '1100', '2500', '5100', '11000', '21000'];
 
   const categories = [
@@ -37,14 +39,14 @@ export function Donate() {
     'Grand Festival Seva (Janmashtami / Rathayatra)',
   ];
 
-  // Quick Seva Cards with direct Razorpay amounts
   const quickSevaCards = [
     {
       emoji: '🍛',
       title: 'Feed 10 Devotees',
       amount: '501',
-      desc: 'Sponsor a day\'s prasadam for 10 pilgrims',
+      desc: "Sponsor a day's prasadam for 10 pilgrims",
       color: '#f59e0b',
+      type: 'Annadaan Seva',
     },
     {
       emoji: '📖',
@@ -52,6 +54,7 @@ export function Donate() {
       amount: '250',
       desc: 'Spread spiritual knowledge with a Gita gift',
       color: '#38bdf8',
+      type: 'Gita Daan',
     },
     {
       emoji: '🐄',
@@ -59,6 +62,7 @@ export function Donate() {
       amount: '501',
       desc: 'Feed and care for sacred cows for one day',
       color: '#34d399',
+      type: 'Gaushala Seva',
     },
     {
       emoji: '🌸',
@@ -66,6 +70,7 @@ export function Donate() {
       amount: '1100',
       desc: 'Beautiful fresh flowers for Sri Radha Krishna',
       color: '#f472b6',
+      type: 'Deity Seva',
     },
     {
       emoji: '🏛️',
@@ -73,6 +78,7 @@ export function Donate() {
       amount: '251',
       desc: 'Keep the eternal divine flame burning',
       color: '#fbbf24',
+      type: 'General Seva',
     },
     {
       emoji: '👑',
@@ -80,8 +86,16 @@ export function Donate() {
       amount: '5100',
       desc: 'Sponsor a grand Vaishnava festival celebration',
       color: '#a78bfa',
+      type: 'Festival Seva',
     },
   ];
+
+  const handlePayAndVerify = (payAmount: string, sevaType: string) => {
+    openRazorpay(payAmount);
+    setVerifyAmount(payAmount);
+    setVerifyType(sevaType);
+    setShowVerifyModal(true);
+  };
 
   return (
     <main className="page donation">
@@ -91,8 +105,48 @@ export function Donate() {
         subtitle="Whatever you do, whatever you offer or give away, do that as an offering unto Lord Krishna. Every contribution transforms lives."
       />
 
-      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+      {/* Floating / Sticky Banner to Open Verification Form directly */}
+      <div
+        className="card"
+        style={{
+          maxWidth: '900px',
+          margin: '0 auto 36px',
+          padding: '16px 24px',
+          background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(12, 25, 40, 0.95) 100%)',
+          border: '1.5px solid var(--gold)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '14px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '24px' }}>🧾</span>
+          <div>
+            <strong style={{ color: 'var(--gold-bright)', fontSize: '15px' }}>
+              Already Made a Payment or Bank Transfer?
+            </strong>
+            <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--ink-soft)' }}>
+              Submit your UTR / transaction ID and screenshot to receive official verification within 24 hours.
+            </p>
+          </div>
+        </div>
 
+        <button
+          onClick={() => {
+            setVerifyAmount(amount || '1100');
+            setVerifyType(category);
+            setShowVerifyModal(true);
+          }}
+          className="btn btn--gold"
+          style={{ padding: '9px 18px', fontSize: '13.5px', fontWeight: 700 }}
+        >
+          ✍️ I Have Paid — Submit Details
+        </button>
+      </div>
+
+      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
         {/* ── Quick Seva Cards ── */}
         <section style={{ marginBottom: '48px' }}>
           <div style={{ textAlign: 'center', marginBottom: '24px' }}>
@@ -113,10 +167,7 @@ export function Donate() {
                   flexDirection: 'column',
                   gap: '10px',
                   transition: 'transform 0.2s',
-                  cursor: 'pointer',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.transform = 'translateY(-4px)')}
-                onMouseLeave={e => (e.currentTarget.style.transform = 'translateY(0)')}
               >
                 <div style={{ fontSize: '32px' }}>{seva.emoji}</div>
                 <div>
@@ -127,7 +178,7 @@ export function Donate() {
                   ₹{parseInt(seva.amount).toLocaleString('en-IN')}
                 </div>
                 <button
-                  onClick={() => openRazorpay(seva.amount)}
+                  onClick={() => handlePayAndVerify(seva.amount, seva.type)}
                   className="btn btn--pearl"
                   style={{ width: '100%', fontSize: '13.5px', padding: '10px' }}
                 >
@@ -204,7 +255,7 @@ export function Donate() {
             {/* Razorpay Donate Button */}
             <button
               className="btn btn--pearl"
-              onClick={() => openRazorpay(amount)}
+              onClick={() => handlePayAndVerify(amount, category)}
               style={{ padding: '14px', fontSize: '16px', fontWeight: 700, letterSpacing: '0.5px' }}
             >
               🙏 Proceed to Secure Donation — ₹{parseInt(amount || '0').toLocaleString('en-IN')} via Razorpay
@@ -235,8 +286,16 @@ export function Donate() {
             <div><strong>Temple Helpdesk:</strong> +91 90828 60210</div>
           </div>
         </div>
-
       </div>
+
+      {/* Verification Details Modal */}
+      <DonationForm
+        isOpen={showVerifyModal}
+        onClose={() => setShowVerifyModal(false)}
+        initialAmount={verifyAmount}
+        initialType={verifyType}
+        title="Submit Payment Details for Verification"
+      />
     </main>
   );
 }

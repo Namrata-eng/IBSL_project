@@ -1,16 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import PageBanner from '../PageBanner';
 import { HeartIcon, PeacockFeatherIcon } from '../icons';
+import DonationForm from '../DonationForm';
 
-// ── Razorpay payment link for Gaushala – replace with your actual link ──
-const GAUSHALA_RAZORPAY_LINK = 'https://pages.razorpay.com/WWo5n2F8kQuickDonate'; // Replace with actual link
-
-function donateToGaushala(amount: number) {
-  window.open(`${GAUSHALA_RAZORPAY_LINK}?amount=${amount * 100}`, '_blank', 'noopener');
-}
+// ── Razorpay payment link for Gaushala ──
+const GAUSHALA_RAZORPAY_LINK = 'https://pages.razorpay.com/WWo5n2F8kQuickDonate';
 
 export function Gaushala() {
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [selectedAmount, setSelectedAmount] = useState<number | string>(501);
+
   const sevaOptions = [
     { title: '1 Day Green Fodder Seva', amount: 501, desc: 'Fresh nutritious green grass and fodder for the cows.' },
     { title: '1 Month Jaggery & Nutrition Diet', amount: 2100, desc: 'Special protein and jaggery mix for cows and newborn calves.' },
@@ -25,6 +25,12 @@ export function Gaushala() {
     { label: 'Families Supported', value: '200+', emoji: '❤️' },
   ];
 
+  const donateToGaushala = (amount: number) => {
+    window.open(`${GAUSHALA_RAZORPAY_LINK}?amount=${amount * 100}`, '_blank', 'noopener');
+    setSelectedAmount(amount);
+    setShowVerifyModal(true);
+  };
+
   return (
     <main className="page">
       <PageBanner
@@ -32,6 +38,46 @@ export function Gaushala() {
         title="Gaushala & Sacred Cow Protection"
         subtitle="Protecting and serving indigenous Desi cows with love, natural shelter, and nutritious fodder in Kopargaon."
       />
+
+      {/* Verification submission prompt */}
+      <div
+        className="card"
+        style={{
+          maxWidth: '1000px',
+          margin: '0 auto 36px',
+          padding: '16px 24px',
+          background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.15) 0%, rgba(12, 25, 40, 0.95) 100%)',
+          border: '1.5px solid #38bdf8',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '14px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '24px' }}>🐄</span>
+          <div>
+            <strong style={{ color: '#38bdf8', fontSize: '15px' }}>
+              Already Made a Gau Seva Donation?
+            </strong>
+            <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--ink-soft)' }}>
+              Submit your receipt screenshot and transaction ID for official verification within 24 hours.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            setSelectedAmount(501);
+            setShowVerifyModal(true);
+          }}
+          className="btn btn--peacock"
+          style={{ padding: '9px 18px', fontSize: '13.5px', fontWeight: 700 }}
+        >
+          ✍️ I Have Paid — Submit Details
+        </button>
+      </div>
 
       {/* Intro card */}
       <div className="card" style={{ padding: '36px', maxWidth: '1000px', margin: '0 auto 36px', background: 'radial-gradient(circle at 10% 10%, rgba(2, 132, 199, 0.15), rgba(14, 28, 44, 0.8))' }}>
@@ -114,10 +160,18 @@ export function Gaushala() {
             onClick={() => donateToGaushala(501)}
             className="btn btn--peacock"
           >
-            🙏 Donate via Razorpay
+            🐄 Sponsor Fodder Seva
           </button>
         </div>
       </div>
+
+      <DonationForm
+        isOpen={showVerifyModal}
+        onClose={() => setShowVerifyModal(false)}
+        initialAmount={selectedAmount}
+        initialType="Gaushala Seva"
+        title="Submit Gaushala Cow Seva Payment Proof"
+      />
     </main>
   );
 }

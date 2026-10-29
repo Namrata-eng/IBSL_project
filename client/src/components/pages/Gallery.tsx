@@ -15,6 +15,8 @@ export function Gallery() {
   const [photoTitle, setPhotoTitle] = useState('');
   const [photoCategory, setPhotoCategory] = useState('Deity Darshan');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState('');
   const [photoDesc, setPhotoDesc] = useState('');
   const [uploadSuccess, setUploadSuccess] = useState('');
 
@@ -61,30 +63,33 @@ export function Gallery() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setPhotoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+      setPhotoUrl('');
     }
   };
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!photoTitle || !photoUrl) return;
+    if (!photoTitle || (!photoFile && !photoUrl)) return;
 
-    await saveGalleryPhoto({
-      title: photoTitle,
-      category: photoCategory,
-      imageUrl: photoUrl,
-      description: photoDesc,
-    });
+    const formData = new FormData();
+    formData.append('title', photoTitle);
+    formData.append('category', photoCategory);
+    if (photoDesc) formData.append('description', photoDesc);
+    if (photoFile) {
+      formData.append('image', photoFile);
+    } else if (photoUrl) {
+      formData.append('imageUrl', photoUrl);
+    }
+
+    await saveGalleryPhoto(formData);
 
     setUploadSuccess(`✨ "${photoTitle}" uploaded successfully to Darshan Gallery!`);
     setPhotoTitle('');
     setPhotoUrl('');
+    setPhotoFile(null);
+    setPhotoPreview('');
     setPhotoDesc('');
     const updated = await fetchGallery();
     setImages(updated);
@@ -238,12 +243,16 @@ export function Gallery() {
                 <input
                   placeholder="https://images.unsplash.com/..."
                   value={photoUrl}
-                  onChange={e => setPhotoUrl(e.target.value)}
+                  onChange={e => {
+                    setPhotoUrl(e.target.value);
+                    setPhotoPreview(e.target.value);
+                    setPhotoFile(null);
+                  }}
                 />
               </label>
 
-              {photoUrl && (
-                <div style={{ height: '140px', borderRadius: '10px', backgroundImage: `url(${photoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', border: '1px solid var(--hairline-gold)' }} />
+              {(photoPreview || photoUrl) && (
+                <div style={{ height: '140px', borderRadius: '10px', backgroundImage: `url(${photoPreview || photoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', border: '1px solid var(--hairline-gold)' }} />
               )}
 
               <label>

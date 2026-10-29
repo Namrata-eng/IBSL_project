@@ -84,6 +84,18 @@ export const Prasadam = model(
   )
 );
 
+const imageFileSchema = new Schema(
+  {
+    filename: { type: String, default: 'image.webp' },
+    mimeType: { type: String, required: true },
+    size: { type: Number, required: true },
+    data: { type: Buffer, required: true, select: false },
+  },
+  opts
+);
+
+export const ImageFile = model('ImageFile', imageFileSchema);
+
 export const GalleryImage = model(
   'GalleryImage',
   new Schema(
@@ -92,6 +104,7 @@ export const GalleryImage = model(
       imageUrl: { type: String, required: true },
       category: { type: String, default: 'Deity Darshan' },
       description: String,
+      imageFileId: { type: Schema.Types.ObjectId, ref: 'ImageFile' },
     },
     opts
   )
@@ -139,17 +152,46 @@ export const Inquiry = model(
   )
 );
 
+const paymentProofSchema = new Schema(
+  {
+    mimeType: { type: String, required: true },
+    size: { type: Number, required: true },
+    data: { type: Buffer, required: true, select: false },
+    expiresAt: { type: Date, required: false },
+  },
+  opts
+);
+
+// TTL index for automatic deletion of expired proofs
+paymentProofSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
+export const PaymentProof = model('PaymentProof', paymentProofSchema);
+
 export const Donation = model(
   'Donation',
   new Schema(
     {
-      type: String,
-      amount: Number,
-      donorName: String,
-      donorEmail: String,
-      donorPhone: String,
+      referenceId: { type: String, required: true, unique: true, index: true },
+      donorName: { type: String, required: true, trim: true },
+      donorPhone: { type: String, required: true, trim: true },
+      donorEmail: { type: String, trim: true, lowercase: true },
+      amount: { type: Number, required: true },
+      type: { type: String, default: 'General Seva' },
+      transactionId: { type: String, required: true, unique: true, trim: true },
+      screenshotId: { type: Schema.Types.ObjectId, ref: 'PaymentProof' },
+      status: {
+        type: String,
+        enum: ['pending', 'verified', 'rejected'],
+        default: 'pending',
+        index: true,
+      },
+      rejectReason: { type: String, default: '' },
+      verifiedAt: { type: Date },
+      verifiedBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
+      userId: { type: Schema.Types.ObjectId, ref: 'User' },
+      screenshotDeletedAt: { type: Date },
+      screenshotDeletedBy: { type: String, enum: ['auto', 'admin'] },
       paymentId: String,
-      status: { type: String, enum: ['pending', 'paid', 'failed'], default: 'paid' },
     },
     opts
   )

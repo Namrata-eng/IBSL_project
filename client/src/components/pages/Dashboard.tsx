@@ -18,13 +18,15 @@ import {
   PeacockFeatherIcon,
   LotusIcon,
   TilakMark,
+  HeartIcon,
   XIcon,
 } from '../icons';
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'events' | 'gallery' | 'inquiries'>('gallery');
+  const [activeTab, setActiveTab] = useState<'donations' | 'gallery' | 'events' | 'inquiries'>('donations');
 
+  // Events State
   const [events, setEvents] = useState<TempleEvent[]>([]);
   const [eventName, setEventName] = useState('');
   const [eventDate, setEventDate] = useState('');
@@ -35,14 +37,37 @@ export function Dashboard() {
   const [eventImage, setEventImage] = useState('');
   const [eventSuccess, setEventSuccess] = useState('');
 
+  // Gallery State
   const [gallery, setGallery] = useState<GalleryPhoto[]>([]);
   const [photoTitle, setPhotoTitle] = useState('');
   const [photoCategory, setPhotoCategory] = useState('Deity Darshan');
   const [photoUrl, setPhotoUrl] = useState('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState('');
   const [photoDesc, setPhotoDesc] = useState('');
   const [photoSuccess, setPhotoSuccess] = useState('');
 
+  // Inquiries State
   const [inquiries, setInquiries] = useState<any[]>([]);
+
+  // Donations State
+  const [donations, setDonations] = useState<any[]>([]);
+  const [donationTotal, setDonationTotal] = useState(0);
+  const [verifiedTotal, setVerifiedTotal] = useState(0);
+  const [donationCounts, setDonationCounts] = useState({ all: 0, pending: 0, verified: 0, rejected: 0 });
+  const [donationFilter, setDonationFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('all');
+  const [donationPage, setDonationPage] = useState(1);
+  const [loadingDonations, setLoadingDonations] = useState(false);
+
+  // Donation Review Modal
+  const [selectedDonation, setSelectedDonation] = useState<any | null>(null);
+  const [screenshotBlobUrl, setScreenshotBlobUrl] = useState<string | null>(null);
+  const [loadingScreenshot, setLoadingScreenshot] = useState(false);
+  const [screenshotError, setScreenshotError] = useState('');
+  const [verifyDeleteScreenshot, setVerifyDeleteScreenshot] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [modalActionLoading, setModalActionLoading] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
@@ -67,18 +92,217 @@ export function Dashboard() {
         setInquiries(data.data || []);
       }
     } catch {}
+
+    loadDonations('all', 1);
+  };
+
+  const loadDonations = async (statusFilter = donationFilter, page = donationPage) => {
+    setLoadingDonations(true);
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    try {
+      const url = `/api/donations?page=${page}&limit=15${statusFilter !== 'all' ? `&status=${statusFilter}` : ''}`;
+      const res = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDonations(data.items || []);
+        setDonationTotal(data.total || 0);
+        setVerifiedTotal(data.verifiedTotal || 0);
+        setDonationCounts(data.counts || { all: 0, pending: 0, verified: 0, rejected: 0 });
+      }
+    } catch (err) {
+      console.error('Error loading donations:', err);
+    } finally {
+      setLoadingDonations(false);
+    }
+  };
+
+  const handleFilterChange = (filter: 'all' | 'pending' | 'verified' | 'rejected') => {
+    setDonationFilter(filter);
+    setDonationPage(1);
+    loadDonations(filter, 1);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setDonationPage(newPage);
+    loadDonations(donationFilter, newPage);
+  };
+
+  const handleDownloadCsv = async () => {
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    try {
+      const res = await fetch('/api/donations/export', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `iskcon_kopargaon_donations_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } else {
+        alert('Failed to export donation CSV.');
+      }
+    } catch {
+      alert('Failed to export donation CSV.');
+    }
+  };
+
+  const openDonationModal = async (donation: any) => {
+    setSelectedDonation(donation);
+    setVerifyDeleteScreenshot(false);
+    setRejectReason(donation.rejectReason || '');
+    setModalMessage('');
+    setScreenshotError('');
+
+    if (screenshotBlobUrl) {
+      URL.revokeObjectURL(screenshotBlobUrl);
+      setScreenshotBlobUrl(null);
+    }
+
+    if (!donation.hasScreenshot) {
+      // Screenshot was already deleted or TTL expired; do NOT call endpoint
+      return;
+    }
+
+    setLoadingScreenshot(true);
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    try {
+      const res = await fetch(`/api/donations/${donation._id}/screenshot`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        setScreenshotBlobUrl(URL.createObjectURL(blob));
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setScreenshotError(d.message || 'Screenshot deleted');
+      }
+    } catch {
+      setScreenshotError('Unable to load screenshot proof.');
+    } finally {
+      setLoadingScreenshot(false);
+    }
+  };
+
+  const closeDonationModal = () => {
+    if (screenshotBlobUrl) {
+      URL.revokeObjectURL(screenshotBlobUrl);
+      setScreenshotBlobUrl(null);
+    }
+    setSelectedDonation(null);
+  };
+
+  const handleVerifyDonation = async () => {
+    if (!selectedDonation) return;
+    setModalActionLoading(true);
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    try {
+      const res = await fetch(`/api/donations/${selectedDonation._id}/verify`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ deleteScreenshotNow: verifyDeleteScreenshot }),
+      });
+      if (res.ok) {
+        setModalMessage('✓ Donation verified successfully!');
+        await loadDonations();
+        setTimeout(() => closeDonationModal(), 1200);
+      } else {
+        const d = await res.json();
+        setScreenshotError(d.message || 'Verification failed');
+      }
+    } catch (err: any) {
+      setScreenshotError(err.message || 'Verification failed');
+    } finally {
+      setModalActionLoading(false);
+    }
+  };
+
+  const handleRejectDonation = async () => {
+    if (!selectedDonation) return;
+    if (!rejectReason.trim()) {
+      setScreenshotError('Please provide a reason for rejection.');
+      return;
+    }
+    setModalActionLoading(true);
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    try {
+      const res = await fetch(`/api/donations/${selectedDonation._id}/reject`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          reason: rejectReason.trim(),
+          deleteScreenshotNow: verifyDeleteScreenshot,
+        }),
+      });
+      if (res.ok) {
+        setModalMessage('✕ Donation marked as rejected.');
+        await loadDonations();
+        setTimeout(() => closeDonationModal(), 1200);
+      } else {
+        const d = await res.json();
+        setScreenshotError(d.message || 'Rejection failed');
+      }
+    } catch (err: any) {
+      setScreenshotError(err.message || 'Rejection failed');
+    } finally {
+      setModalActionLoading(false);
+    }
+  };
+
+  const handleDeleteScreenshotNow = async () => {
+    if (!selectedDonation) return;
+    if (selectedDonation.status === 'pending') {
+      alert('Verify or reject first before deleting screenshot.');
+      return;
+    }
+    if (!window.confirm('Delete this payment proof screenshot now? This cannot be undone.')) {
+      return;
+    }
+
+    setModalActionLoading(true);
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    try {
+      const res = await fetch(`/api/donations/${selectedDonation._id}/screenshot`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        if (screenshotBlobUrl) {
+          URL.revokeObjectURL(screenshotBlobUrl);
+          setScreenshotBlobUrl(null);
+        }
+        setSelectedDonation({ ...selectedDonation, hasScreenshot: false });
+        setModalMessage('Payment proof screenshot permanently deleted.');
+        await loadDonations();
+      } else {
+        const d = await res.json();
+        alert(d.message || 'Could not delete screenshot');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Could not delete screenshot');
+    } finally {
+      setModalActionLoading(false);
+    }
   };
 
   const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setPhotoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      setPhotoFile(file);
+      setPhotoPreview(URL.createObjectURL(file));
+      setPhotoUrl('');
     }
   };
 
@@ -131,18 +355,28 @@ export function Dashboard() {
 
   const handleAddPhoto = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!photoTitle || !photoUrl) return;
+    if (!photoTitle || (!photoFile && !photoUrl)) {
+      alert('Please provide a photo title and choose an image file or provide an image URL.');
+      return;
+    }
 
-    await saveGalleryPhoto({
-      title: photoTitle,
-      category: photoCategory,
-      imageUrl: photoUrl,
-      description: photoDesc,
-    });
+    const formData = new FormData();
+    formData.append('title', photoTitle);
+    formData.append('category', photoCategory);
+    if (photoDesc) formData.append('description', photoDesc);
+    if (photoFile) {
+      formData.append('image', photoFile);
+    } else if (photoUrl) {
+      formData.append('imageUrl', photoUrl);
+    }
+
+    await saveGalleryPhoto(formData);
 
     setPhotoSuccess(`✨ Photo "${photoTitle}" uploaded to Darshan Gallery successfully!`);
     setPhotoTitle('');
     setPhotoUrl('');
+    setPhotoFile(null);
+    setPhotoPreview('');
     setPhotoDesc('');
 
     const updated = await fetchGallery();
@@ -151,7 +385,7 @@ export function Dashboard() {
   };
 
   const handleDeletePhoto = async (id: string, title: string) => {
-    if (window.confirm(`Delete "${title}" from the gallery?`)) {
+    if (window.confirm(`Delete photo "${title}" from the public gallery?`)) {
       await deleteGalleryPhoto(id);
       const updated = await fetchGallery();
       setGallery(updated);
@@ -162,73 +396,102 @@ export function Dashboard() {
     localStorage.removeItem('adminToken');
     localStorage.removeItem('userToken');
     localStorage.removeItem('userData');
-    window.dispatchEvent(new Event('storage'));
     navigate('/login');
   };
 
+  const totalPages = Math.ceil(donationTotal / 15) || 1;
+
   return (
-    <main className="page" style={{ maxWidth: '1200px' }}>
+    <main className="page" style={{ maxWidth: '1240px', margin: '0 auto', paddingBottom: '80px' }}>
       <PageBanner
-        lead="👑 TEMPLE MANAGEMENT CONSOLE"
-        title="Admin Control Dashboard"
-        subtitle="Dynamically upload deity photos, publish upcoming festivals, and broadcast real-time devotee notifications."
+        lead="TEMPLE ADMINISTRATION"
+        title="Admin Control Console"
+        subtitle="Manual donation verification, deity darshan photo publisher, festival manager, and pilgrim inquiries."
       />
 
+      {/* Top Banner Stats */}
       <div
         className="card"
         style={{
-          background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.22) 0%, rgba(12, 25, 40, 0.95) 100%)',
-          border: '2px solid var(--gold)',
-          padding: '24px 30px',
+          padding: '24px 32px',
           marginBottom: '32px',
-          boxShadow: '0 0 28px rgba(212, 175, 55, 0.25)',
+          background: 'radial-gradient(circle at 10% 10%, rgba(245, 176, 65, 0.2), rgba(14, 28, 44, 0.95))',
+          border: '1.5px solid var(--gold)',
+          boxShadow: '0 0 30px rgba(212, 175, 55, 0.2)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '20px',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <TilakMark size={32} />
           <div>
-            <h3 style={{ margin: 0, fontSize: '20px', color: 'var(--gold-bright)' }}>
-              👑 Welcome, Temple Administrator!
-            </h3>
-            <p style={{ margin: '4px 0 0', fontSize: '14px', color: 'var(--ink-soft)' }}>
-              Select a section below to add new festivals or upload new deity photos directly into the website:
+            <strong style={{ fontSize: '18px', color: 'var(--gold-bright)' }}>ISKCON Kopargaon Sevak Console</strong>
+            <p style={{ margin: '2px 0 0', fontSize: '13.5px', color: 'var(--ink-soft)' }}>
+              Logged in as Administrator · Changes sync directly with live website visitors
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <Link to="/gallery" className="btn btn--ink" style={{ fontSize: '13px' }}>
-              View Public Gallery
-            </Link>
-            <Link to="/events" className="btn btn--ink" style={{ fontSize: '13px' }}>
-              View Public Festivals
-            </Link>
-          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <Link to="/gallery" className="btn btn--pearl" style={{ fontSize: '13px' }}>
+            View Public Gallery
+          </Link>
+          <Link to="/events" className="btn btn--ink" style={{ fontSize: '13px' }}>
+            View Public Festivals
+          </Link>
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '14px', marginBottom: '36px' }}>
+      {/* Tab Controls */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '12px', marginBottom: '36px' }}>
+        <button
+          onClick={() => {
+            setActiveTab('donations');
+            loadDonations();
+          }}
+          className={`btn ${activeTab === 'donations' ? 'btn--gold' : 'btn--ink'}`}
+          style={{ padding: '12px 22px', fontSize: '14.5px', fontWeight: 700 }}
+        >
+          <HeartIcon size={18} />
+          <span>
+            💰 Donations & Verification{' '}
+            {donationCounts.pending > 0 ? (
+              <span style={{ background: '#ef4444', color: '#fff', padding: '2px 8px', borderRadius: '12px', fontSize: '12px', marginLeft: '6px' }}>
+                {donationCounts.pending} Pending
+              </span>
+            ) : (
+              `(${donationCounts.all})`
+            )}
+          </span>
+        </button>
+
         <button
           onClick={() => setActiveTab('gallery')}
           className={`btn ${activeTab === 'gallery' ? 'btn--gold' : 'btn--ink'}`}
-          style={{ padding: '12px 26px', fontSize: '15px', fontWeight: 700 }}
+          style={{ padding: '12px 22px', fontSize: '14.5px', fontWeight: 700 }}
         >
           <PeacockFeatherIcon size={18} />
-          <span>📸 Upload Deity & Gallery Photos ({gallery.length})</span>
+          <span>📸 Gallery Photos ({gallery.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('events')}
           className={`btn ${activeTab === 'events' ? 'btn--gold' : 'btn--ink'}`}
-          style={{ padding: '12px 26px', fontSize: '15px', fontWeight: 700 }}
+          style={{ padding: '12px 22px', fontSize: '14.5px', fontWeight: 700 }}
         >
           <CalendarIcon size={18} />
-          <span>🎉 Add & Publish Festivals ({events.length})</span>
+          <span>🎉 Festivals & Events ({events.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('inquiries')}
           className={`btn ${activeTab === 'inquiries' ? 'btn--gold' : 'btn--ink'}`}
-          style={{ padding: '12px 26px', fontSize: '15px', fontWeight: 700 }}
+          style={{ padding: '12px 22px', fontSize: '14.5px', fontWeight: 700 }}
         >
-          <span>✉️ Visitor Inquiries ({inquiries.length})</span>
+          <span>✉️ Inquiries ({inquiries.length})</span>
         </button>
 
         <button onClick={handleSignOut} className="btn btn--ink" style={{ padding: '12px 20px', marginLeft: 'auto' }}>
@@ -236,6 +499,497 @@ export function Dashboard() {
         </button>
       </div>
 
+      {/* =========================================================================
+          TAB 1: DONATIONS VERIFICATION CONSOLE
+          ========================================================================= */}
+      {activeTab === 'donations' && (
+        <div>
+          {/* Summary Metric Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '18px', marginBottom: '28px' }}>
+            <div className="card" style={{ padding: '22px', borderTop: '3px solid #10b981' }}>
+              <small style={{ color: 'var(--ink-soft)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Total Verified Seva
+              </small>
+              <h2 style={{ fontSize: '28px', color: '#10b981', margin: '6px 0 0', fontWeight: 700 }}>
+                ₹{verifiedTotal.toLocaleString('en-IN')}
+              </h2>
+            </div>
+
+            <div className="card" style={{ padding: '22px', borderTop: '3px solid #f59e0b' }}>
+              <small style={{ color: 'var(--ink-soft)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Pending Verification
+              </small>
+              <h2 style={{ fontSize: '28px', color: '#f59e0b', margin: '6px 0 0', fontWeight: 700 }}>
+                {donationCounts.pending}
+              </h2>
+            </div>
+
+            <div className="card" style={{ padding: '22px', borderTop: '3px solid #38bdf8' }}>
+              <small style={{ color: 'var(--ink-soft)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Verified Offerings
+              </small>
+              <h2 style={{ fontSize: '28px', color: '#38bdf8', margin: '6px 0 0', fontWeight: 700 }}>
+                {donationCounts.verified}
+              </h2>
+            </div>
+
+            <div className="card" style={{ padding: '22px', borderTop: '3px solid #ef4444' }}>
+              <small style={{ color: 'var(--ink-soft)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Rejected Records
+              </small>
+              <h2 style={{ fontSize: '28px', color: '#ef4444', margin: '6px 0 0', fontWeight: 700 }}>
+                {donationCounts.rejected}
+              </h2>
+            </div>
+          </div>
+
+          {/* Filter & Export Row */}
+          <div
+            className="card"
+            style={{
+              padding: '16px 22px',
+              marginBottom: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '14px',
+            }}
+          >
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: '13px', color: 'var(--ink-soft)', marginRight: '6px' }}>Status:</span>
+              {(['all', 'pending', 'verified', 'rejected'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => handleFilterChange(f)}
+                  className={`btn ${donationFilter === f ? 'btn--gold' : 'btn--ink'}`}
+                  style={{ padding: '6px 14px', fontSize: '13px', textTransform: 'capitalize' }}
+                >
+                  {f === 'all' ? `All (${donationCounts.all})` : `${f} (${donationCounts[f]})`}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleDownloadCsv}
+              className="btn btn--pearl"
+              style={{ padding: '8px 18px', fontSize: '13px', fontWeight: 600 }}
+            >
+              📥 Download CSV
+            </button>
+          </div>
+
+          {/* Donations Table */}
+          <div className="card" style={{ padding: '0', overflowX: 'auto', marginBottom: '24px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13.5px' }}>
+              <thead>
+                <tr style={{ background: 'rgba(255, 255, 255, 0.04)', borderBottom: '1px solid var(--hairline-gold)' }}>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Date</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Ref ID</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Donor Name</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Phone / Email</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Amount</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Seva Type</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Txn / UTR ID</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Status</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)', textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingDonations ? (
+                  <tr>
+                    <td colSpan={9} style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)' }}>
+                      Loading donation records...
+                    </td>
+                  </tr>
+                ) : donations.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)' }}>
+                      No donations found for this filter.
+                    </td>
+                  </tr>
+                ) : (
+                  donations.map((d: any) => (
+                    <tr
+                      key={d._id}
+                      onClick={() => openDonationModal(d)}
+                      style={{
+                        borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)')}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                      <td style={{ padding: '14px 18px', whiteSpace: 'nowrap' }}>
+                        {new Date(d.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </td>
+                      <td style={{ padding: '14px 18px', fontFamily: 'monospace', fontWeight: 700, color: '#fff' }}>
+                        {d.referenceId}
+                      </td>
+                      <td style={{ padding: '14px 18px', fontWeight: 600 }}>{d.donorName}</td>
+                      <td style={{ padding: '14px 18px', color: 'var(--ink-soft)' }}>
+                        <div>{d.donorPhone}</div>
+                        {d.donorEmail && <small style={{ color: 'var(--ink-faint)' }}>{d.donorEmail}</small>}
+                      </td>
+                      <td style={{ padding: '14px 18px', fontWeight: 700, color: 'var(--gold-bright)' }}>
+                        ₹{d.amount?.toLocaleString('en-IN')}
+                      </td>
+                      <td style={{ padding: '14px 18px' }}>{d.type}</td>
+                      <td style={{ padding: '14px 18px', fontFamily: 'monospace', fontSize: '12.5px', color: 'var(--ink-soft)' }}>
+                        {d.transactionId}
+                      </td>
+                      <td style={{ padding: '14px 18px' }}>
+                        {d.status === 'pending' && (
+                          <span style={{ color: '#fbbf24', background: 'rgba(245, 158, 11, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                            Pending
+                          </span>
+                        )}
+                        {d.status === 'verified' && (
+                          <span style={{ color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                            Verified
+                          </span>
+                        )}
+                        {d.status === 'rejected' && (
+                          <span style={{ color: '#f87171', background: 'rgba(239, 68, 68, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                            Rejected
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            openDonationModal(d);
+                          }}
+                          className="btn btn--ink"
+                          style={{ padding: '6px 12px', fontSize: '12px' }}
+                        >
+                          👁️ Review Proof
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '14px', marginTop: '16px' }}>
+              <button
+                disabled={donationPage <= 1}
+                onClick={() => handlePageChange(donationPage - 1)}
+                className="btn btn--ink"
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+              >
+                Previous
+              </button>
+              <span style={{ color: 'var(--ink-soft)', fontSize: '13.5px' }}>
+                Page <strong>{donationPage}</strong> of <strong>{totalPages}</strong> ({donationTotal} total)
+              </span>
+              <button
+                disabled={donationPage >= totalPages}
+                onClick={() => handlePageChange(donationPage + 1)}
+                className="btn btn--ink"
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+              >
+                Next
+              </button>
+            </div>
+          )}
+
+          {/* Screenshot Review & Verification Modal */}
+          {selectedDonation && (
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 1100,
+                backgroundColor: 'rgba(5, 12, 22, 0.88)',
+                backdropFilter: 'blur(6px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '16px',
+                overflowY: 'auto',
+              }}
+              onClick={e => {
+                if (e.target === e.currentTarget && !modalActionLoading) closeDonationModal();
+              }}
+            >
+              <div
+                className="card"
+                style={{
+                  width: '100%',
+                  maxWidth: '680px',
+                  maxHeight: '94vh',
+                  overflowY: 'auto',
+                  padding: '30px',
+                  position: 'relative',
+                  border: '1.5px solid var(--gold)',
+                  boxShadow: '0 24px 60px rgba(0, 0, 0, 0.7)',
+                  background: 'linear-gradient(135deg, rgba(20, 32, 48, 0.99) 0%, rgba(10, 18, 28, 0.99) 100%)',
+                  borderRadius: '12px',
+                }}
+              >
+                {/* Modal Close */}
+                <button
+                  onClick={closeDonationModal}
+                  style={{
+                    position: 'absolute',
+                    top: '18px',
+                    right: '18px',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--ink-soft)',
+                    cursor: 'pointer',
+                    padding: '6px',
+                  }}
+                  aria-label="Close"
+                >
+                  <XIcon size={20} />
+                </button>
+
+                {/* Header Info */}
+                <div style={{ marginBottom: '18px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <LotusIcon size={20} />
+                    <span className="eyebrow" style={{ margin: 0 }}>
+                      DONATION VERIFICATION REVIEW
+                    </span>
+                  </div>
+                  <h2 style={{ fontSize: '22px', margin: '4px 0 2px', color: '#fff' }}>
+                    {selectedDonation.referenceId} — ₹{selectedDonation.amount?.toLocaleString('en-IN')}
+                  </h2>
+                  <p style={{ margin: 0, color: 'var(--ink-soft)', fontSize: '13.5px' }}>
+                    Donor: <strong>{selectedDonation.donorName}</strong> · Phone: {selectedDonation.donorPhone} · Seva:{' '}
+                    {selectedDonation.type}
+                  </p>
+                </div>
+
+                {/* Key Transaction Metadata */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: '10px',
+                    background: 'rgba(0,0,0,0.3)',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--hairline-gold)',
+                    fontSize: '13px',
+                    marginBottom: '20px',
+                  }}
+                >
+                  <div>
+                    <span style={{ color: 'var(--ink-muted)', display: 'block', fontSize: '11px' }}>TRANSACTION ID</span>
+                    <code style={{ color: 'var(--gold-bright)', fontSize: '13px' }}>{selectedDonation.transactionId}</code>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--ink-muted)', display: 'block', fontSize: '11px' }}>CURRENT STATUS</span>
+                    <strong style={{ textTransform: 'capitalize', color: selectedDonation.status === 'verified' ? '#34d399' : selectedDonation.status === 'rejected' ? '#f87171' : '#fbbf24' }}>
+                      {selectedDonation.status}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--ink-muted)', display: 'block', fontSize: '11px' }}>DATE SUBMITTED</span>
+                    <span>{new Date(selectedDonation.createdAt).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+
+                {/* Screenshot Display Section */}
+                <div style={{ marginBottom: '22px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--ink-soft)', marginBottom: '8px' }}>
+                    Payment Screenshot Proof
+                  </label>
+
+                  {!selectedDonation.hasScreenshot ? (
+                    <div
+                      style={{
+                        padding: '32px',
+                        textAlign: 'center',
+                        background: 'rgba(239, 68, 68, 0.08)',
+                        border: '1px dashed rgba(239, 68, 68, 0.4)',
+                        borderRadius: '8px',
+                        color: '#f87171',
+                        fontSize: '14px',
+                      }}
+                    >
+                      🚫 Screenshot deleted (retention period elapsed or manually purged)
+                    </div>
+                  ) : loadingScreenshot ? (
+                    <div style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>
+                      Fetching encrypted payment proof image...
+                    </div>
+                  ) : screenshotBlobUrl ? (
+                    <div style={{ textAlign: 'center' }}>
+                      <div
+                        style={{
+                          background: '#0a1018',
+                          borderRadius: '8px',
+                          border: '1px solid var(--hairline-gold)',
+                          padding: '8px',
+                          display: 'inline-block',
+                          maxWidth: '100%',
+                        }}
+                      >
+                        <img
+                          src={screenshotBlobUrl}
+                          alt="Donation Proof"
+                          style={{
+                            maxHeight: '360px',
+                            maxWidth: '100%',
+                            objectFit: 'contain',
+                            borderRadius: '4px',
+                            display: 'block',
+                            margin: '0 auto',
+                          }}
+                        />
+                      </div>
+
+                      {/* Expiration date notice if set */}
+                      {selectedDonation.screenshotExpiresAt && (
+                        <p style={{ fontSize: '12px', color: 'var(--gold)', marginTop: '8px', marginBottom: '4px' }}>
+                          ⏳ Screenshot will be automatically deleted on{' '}
+                          <strong>
+                            {new Date(selectedDonation.screenshotExpiresAt).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                            })}
+                          </strong>
+                        </p>
+                      )}
+
+                      {/* Manual delete button for verified/rejected donations */}
+                      {selectedDonation.status !== 'pending' && selectedDonation.hasScreenshot && (
+                        <div style={{ marginTop: '10px' }}>
+                          <button
+                            type="button"
+                            onClick={handleDeleteScreenshotNow}
+                            disabled={modalActionLoading}
+                            style={{
+                              background: 'rgba(239, 68, 68, 0.15)',
+                              border: '1px solid #ef4444',
+                              color: '#f87171',
+                              padding: '5px 12px',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              cursor: 'pointer',
+                              fontWeight: 600,
+                            }}
+                          >
+                            🗑️ Delete screenshot now
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ padding: '24px', textAlign: 'center', color: '#f87171' }}>
+                      {screenshotError || 'Screenshot deleted'}
+                    </div>
+                  )}
+                </div>
+
+                {modalMessage && (
+                  <div style={{ padding: '12px', borderRadius: '6px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', fontSize: '13.5px', marginBottom: '16px', textAlign: 'center' }}>
+                    {modalMessage}
+                  </div>
+                )}
+
+                {/* Immediate Delete Checkbox */}
+                <div style={{ marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink-soft)' }}>
+                  <input
+                    type="checkbox"
+                    id="del-immediate"
+                    checked={verifyDeleteScreenshot}
+                    onChange={e => setVerifyDeleteScreenshot(e.target.checked)}
+                    style={{ width: '16px', height: '16px', accentColor: 'var(--gold)' }}
+                  />
+                  <label htmlFor="del-immediate" style={{ cursor: 'pointer' }}>
+                    Delete screenshot immediately upon verification/rejection
+                  </label>
+                </div>
+
+                {/* Rejection Reason Input (Visible if rejecting or already rejected) */}
+                <div style={{ marginBottom: '18px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', color: 'var(--ink-soft)', marginBottom: '4px' }}>
+                    Rejection Reason (Required if rejecting):
+                  </label>
+                  <input
+                    type="text"
+                    value={rejectReason}
+                    onChange={e => setRejectReason(e.target.value)}
+                    placeholder="e.g. Transaction ID not found in bank statement / Invalid amount"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '6px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid var(--hairline-gold)',
+                      color: '#fff',
+                      fontSize: '13.5px',
+                    }}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    disabled={modalActionLoading}
+                    onClick={handleVerifyDonation}
+                    className="btn btn--pearl"
+                    style={{
+                      flex: 1,
+                      justifyContent: 'center',
+                      background: '#10b981',
+                      borderColor: '#10b981',
+                      color: '#fff',
+                      fontWeight: 700,
+                    }}
+                  >
+                    ✓ Verify Donation
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={modalActionLoading}
+                    onClick={handleRejectDonation}
+                    className="btn btn--ink"
+                    style={{
+                      flex: 1,
+                      justifyContent: 'center',
+                      background: 'rgba(239, 68, 68, 0.2)',
+                      borderColor: '#ef4444',
+                      color: '#f87171',
+                      fontWeight: 700,
+                    }}
+                  >
+                    ✕ Reject (with reason)
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={modalActionLoading}
+                    onClick={closeDonationModal}
+                    className="btn btn--ink"
+                    style={{ padding: '10px 18px' }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =========================================================================
+          TAB 2: GALLERY PHOTOS CONSOLE
+          ========================================================================= */}
       {activeTab === 'gallery' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '32px' }}>
           <div className="card" style={{ padding: '34px', border: '2px solid #38bdf8', boxShadow: '0 0 24px rgba(56, 189, 248, 0.2)' }}>
@@ -283,18 +1037,22 @@ export function Dashboard() {
               </div>
 
               <label>
-                Option B: Or Direct Image Web URL (HD Unsplash Photo)
+                Option B: Or Direct Image Web URL
                 <input
-                  placeholder="https://images.unsplash.com/..."
+                  placeholder="https://..."
                   value={photoUrl}
-                  onChange={e => setPhotoUrl(e.target.value)}
+                  onChange={e => {
+                    setPhotoUrl(e.target.value);
+                    setPhotoPreview(e.target.value);
+                    setPhotoFile(null);
+                  }}
                 />
               </label>
 
-              {photoUrl && (
+              {(photoPreview || photoUrl) && (
                 <div>
                   <span style={{ fontSize: '12px', color: 'var(--gold)', display: 'block', marginBottom: '4px' }}>Image Preview:</span>
-                  <div style={{ height: '160px', borderRadius: '10px', backgroundImage: `url(${photoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', border: '1px solid var(--gold)' }} />
+                  <div style={{ height: '160px', borderRadius: '10px', backgroundImage: `url(${photoPreview || photoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', border: '1px solid var(--gold)' }} />
                 </div>
               )}
 
@@ -308,69 +1066,37 @@ export function Dashboard() {
                 />
               </label>
 
-              <button
-                className="btn btn--gold"
-                style={{
-                  width: '100%',
-                  marginTop: '8px',
-                  padding: '14px',
-                  fontSize: '15px',
-                  fontWeight: 700,
-                  boxShadow: '0 8px 24px rgba(212, 175, 55, 0.4)',
-                }}
-              >
-                📤 UPLOAD PHOTO TO GALLERY NOW
-              </button>
+              {photoSuccess && (
+                <div style={{ color: 'var(--gold-bright)', fontSize: '14px', fontWeight: 600, padding: '8px 12px', background: 'rgba(212,175,55,0.15)', borderRadius: '6px' }}>
+                  {photoSuccess}
+                </div>
+              )}
 
-              {photoSuccess && <p className="success">{photoSuccess}</p>}
+              <button type="submit" className="btn btn--gold" style={{ justifyContent: 'center', padding: '14px', fontWeight: 700 }}>
+                <PlusIcon size={18} />
+                <span>Publish to Public Darshan Gallery</span>
+              </button>
             </form>
           </div>
 
-          <div className="card" style={{ padding: '32px' }}>
-            <h3 style={{ fontSize: '20px', marginBottom: '4px' }}>Live Darshan Gallery Photos ({gallery.length})</h3>
-            <p style={{ fontSize: '13px', color: 'var(--ink-faint)', marginBottom: '18px' }}>
-              These photos are live on the public Darshan Gallery page. Click remove to delete any photo.
+          <div>
+            <h3 style={{ fontSize: '22px', marginBottom: '6px' }}>Published Photos in Gallery ({gallery.length})</h3>
+            <p style={{ color: 'var(--ink-faint)', fontSize: '14px', marginBottom: '20px' }}>
+              These images are visible to all devotees on the Darshan Gallery page.
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '14px', maxHeight: '580px', overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
               {gallery.map(p => (
-                <div
-                  key={p._id}
-                  style={{
-                    position: 'relative',
-                    borderRadius: '10px',
-                    overflow: 'hidden',
-                    border: '1px solid var(--hairline-gold)',
-                    background: '#0a1624',
-                  }}
-                >
-                  <img
-                    src={p.imageUrl}
-                    alt={p.title}
-                    style={{ width: '100%', height: '110px', objectFit: 'cover' }}
-                  />
-                  <div style={{ padding: '8px' }}>
-                    <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 600 }}>{p.category}</span>
-                    <h5 style={{ fontSize: '12px', margin: '2px 0 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</h5>
-                    <button
-                      onClick={() => handleDeletePhoto(p._id, p.title)}
-                      style={{
-                        width: '100%',
-                        color: '#f87171',
-                        background: 'rgba(239, 68, 68, 0.15)',
-                        padding: '4px',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '4px',
-                      }}
-                    >
-                      <TrashIcon size={12} />
-                      <span>Remove</span>
-                    </button>
+                <div key={p._id} className="card" style={{ padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ height: '130px', borderRadius: '8px', backgroundImage: `url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', marginBottom: '10px' }} />
+                    <span className="eyebrow" style={{ fontSize: '10px' }}>{p.category}</span>
+                    <h4 style={{ fontSize: '15px', margin: '4px 0 6px', color: 'var(--ink)' }}>{p.title}</h4>
                   </div>
+                  <button onClick={() => handleDeletePhoto(p._id, p.title)} className="btn btn--ink" style={{ padding: '6px 10px', fontSize: '12px', marginTop: '10px', color: '#f87171', justifyContent: 'center' }}>
+                    <TrashIcon size={14} />
+                    <span>Delete Photo</span>
+                  </button>
                 </div>
               ))}
             </div>
@@ -378,15 +1104,18 @@ export function Dashboard() {
         </div>
       )}
 
+      {/* =========================================================================
+          TAB 3: FESTIVALS & EVENTS CONSOLE
+          ========================================================================= */}
       {activeTab === 'events' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '32px' }}>
           <div className="card" style={{ padding: '34px', border: '2px solid var(--gold)', boxShadow: '0 0 24px rgba(212, 175, 55, 0.2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <span style={{ fontSize: '24px' }}>🎉</span>
-              <h3 style={{ margin: 0, fontSize: '22px', color: 'var(--ink)' }}>Publish New Festival</h3>
+              <span style={{ fontSize: '24px' }}>🪔</span>
+              <h3 style={{ margin: 0, fontSize: '22px', color: 'var(--ink)' }}>Add Upcoming Festival / Event</h3>
             </div>
             <p style={{ fontSize: '13.5px', color: 'var(--ink-faint)', marginBottom: '22px' }}>
-              Publishing a festival automatically broadcasts notifications 1 day prior and on festival day to all visitors!
+              Publishing will update the navbar notification bell, popup alerts, and public calendar.
             </p>
 
             <form onSubmit={handleAddEvent} style={{ display: 'grid', gap: '16px' }}>
@@ -402,7 +1131,7 @@ export function Dashboard() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <label>
-                  Festival Date *
+                  Date *
                   <input
                     required
                     type="date"
@@ -410,42 +1139,38 @@ export function Dashboard() {
                     onChange={e => setEventDate(e.target.value)}
                   />
                 </label>
-
                 <label>
-                  Timings
+                  Timing
                   <input
-                    placeholder="e.g. 05:00 PM - 09:00 PM"
+                    placeholder="05:30 PM Onwards"
                     value={eventTime}
                     onChange={e => setEventTime(e.target.value)}
                   />
                 </label>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <label>
-                  Category
-                  <select value={eventCategory} onChange={e => setEventCategory(e.target.value)}>
-                    <option>Grand Annual Festival</option>
-                    <option>Major Appearance Day</option>
-                    <option>Festival Celebration</option>
-                    <option>Rathayatra</option>
-                    <option>Sankirtan Utsav</option>
-                    <option>Youth Satsang</option>
-                  </select>
-                </label>
+              <label>
+                Location in Kopargaon
+                <input
+                  placeholder="Tahsil Maidan / Temple Altar"
+                  value={eventLocation}
+                  onChange={e => setEventLocation(e.target.value)}
+                />
+              </label>
 
-                <label>
-                  Location / Venue
-                  <input
-                    value={eventLocation}
-                    onChange={e => setEventLocation(e.target.value)}
-                  />
-                </label>
-              </div>
+              <label>
+                Category
+                <select value={eventCategory} onChange={e => setEventCategory(e.target.value)}>
+                  <option>Grand Annual Festival</option>
+                  <option>Major Appearance Day</option>
+                  <option>Vaishnava Celebration</option>
+                  <option>Special Satsang & Kirtan</option>
+                </select>
+              </label>
 
-              <div style={{ background: 'rgba(212, 175, 55, 0.08)', padding: '14px', borderRadius: '10px', border: '1px solid var(--hairline-gold)' }}>
+              <div style={{ background: 'rgba(212, 175, 55, 0.08)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(212, 175, 55, 0.3)' }}>
                 <label style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--gold)' }}>
-                  Option A: Choose Festival Banner from Device
+                  Upload Banner Photo from Device
                 </label>
                 <input
                   type="file"
@@ -456,96 +1181,46 @@ export function Dashboard() {
               </div>
 
               <label>
-                Option B: Or Paste Image Banner URL
-                <input
-                  placeholder="https://images.unsplash.com/..."
-                  value={eventImage}
-                  onChange={e => setEventImage(e.target.value)}
-                />
-              </label>
-
-              {eventImage && (
-                <div>
-                  <span style={{ fontSize: '12px', color: 'var(--gold)', display: 'block', marginBottom: '4px' }}>Banner Preview:</span>
-                  <div style={{ height: '140px', borderRadius: '10px', backgroundImage: `url(${eventImage})`, backgroundSize: 'cover', backgroundPosition: 'center', border: '1px solid var(--gold)' }} />
-                </div>
-              )}
-
-              <label>
-                Festival Description & Schedule *
+                Description & Schedule of Sevas
                 <textarea
                   rows={3}
-                  required
-                  placeholder="Details regarding Abhishek, Chanting, Discourse, and Mahaprasadam Feast..."
+                  placeholder="Details of Abhishek, lecture, feast..."
                   value={eventDesc}
                   onChange={e => setEventDesc(e.target.value)}
                 />
               </label>
 
-              <button
-                className="btn btn--gold"
-                style={{
-                  width: '100%',
-                  marginTop: '8px',
-                  padding: '14px',
-                  fontSize: '15px',
-                  fontWeight: 700,
-                  boxShadow: '0 8px 24px rgba(212, 175, 55, 0.4)',
-                }}
-              >
-                🎉 PUBLISH FESTIVAL & ACTIVATE NOTIFICATIONS
-              </button>
+              {eventSuccess && (
+                <div style={{ color: 'var(--gold-bright)', fontSize: '14px', fontWeight: 600, padding: '8px 12px', background: 'rgba(212,175,55,0.15)', borderRadius: '6px' }}>
+                  {eventSuccess}
+                </div>
+              )}
 
-              {eventSuccess && <p className="success">{eventSuccess}</p>}
+              <button type="submit" className="btn btn--gold" style={{ justifyContent: 'center', padding: '14px', fontWeight: 700 }}>
+                <PlusIcon size={18} />
+                <span>Publish Festival & Activate Alerts</span>
+              </button>
             </form>
           </div>
 
-          <div className="card" style={{ padding: '32px' }}>
-            <h3 style={{ fontSize: '20px', marginBottom: '4px' }}>Published Festivals & Notifications ({events.length})</h3>
-            <p style={{ fontSize: '13px', color: 'var(--ink-faint)', marginBottom: '18px' }}>
-              These festivals are active on the website and trigger notification bell alerts.
+          <div>
+            <h3 style={{ fontSize: '22px', marginBottom: '6px' }}>Active Festivals ({events.length})</h3>
+            <p style={{ color: 'var(--ink-faint)', fontSize: '14px', marginBottom: '20px' }}>
+              These events drive the live countdown bell notification and upcoming schedule.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '580px', overflowY: 'auto' }}>
-              {events.map(ev => (
-                <div
-                  key={ev._id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '16px',
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'rgba(6, 15, 24, 0.75)',
-                    border: '1px solid var(--hairline-gold)',
-                    gap: '12px',
-                  }}
-                >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {events.map(e => (
+                <div key={e._id} className="card" style={{ padding: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <span style={{ fontSize: '11px', color: 'var(--gold)', fontWeight: 600, textTransform: 'uppercase' }}>
-                      {ev.category} · 📅 {new Date(ev.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                    </span>
-                    <h4 style={{ fontSize: '16px', color: 'var(--ink)', margin: '2px 0' }}>{ev.name}</h4>
-                    <p style={{ fontSize: '12.5px', color: 'var(--ink-soft)', margin: 0 }}>
-                      🕒 {ev.time} {ev.location && `· 📍 ${ev.location}`}
+                    <span className="eyebrow" style={{ fontSize: '11px' }}>{e.category}</span>
+                    <h4 style={{ fontSize: '17px', margin: '2px 0 4px', color: 'var(--ink)' }}>{e.name}</h4>
+                    <p style={{ fontSize: '13px', color: 'var(--gold)', margin: 0 }}>
+                      📅 {new Date(e.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} · 🕒 {e.time || 'All Day'}
                     </p>
                   </div>
-
-                  <button
-                    onClick={() => handleDeleteEvent(ev._id, ev.name)}
-                    style={{
-                      color: '#f87171',
-                      background: 'rgba(239, 68, 68, 0.12)',
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      fontSize: '12px',
-                    }}
-                    title="Remove Festival"
-                  >
-                    <TrashIcon size={14} />
+                  <button onClick={() => handleDeleteEvent(e._id, e.name)} className="btn btn--ink" style={{ padding: '8px 12px', color: '#f87171' }}>
+                    <TrashIcon size={16} />
                     <span>Delete</span>
                   </button>
                 </div>
@@ -555,6 +1230,9 @@ export function Dashboard() {
         </div>
       )}
 
+      {/* =========================================================================
+          TAB 4: INQUIRIES CONSOLE
+          ========================================================================= */}
       {activeTab === 'inquiries' && (
         <div className="card" style={{ padding: '36px' }}>
           <h3 style={{ fontSize: '22px', marginBottom: '6px' }}>Devotee & Pilgrim Inquiries</h3>

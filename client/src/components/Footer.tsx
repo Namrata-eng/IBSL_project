@@ -31,6 +31,7 @@ export function Footer() {
             <Link to="/events">Festivals & Events</Link>
             <Link to="/prasadam">Prasadam & Annadanam</Link>
             <Link to="/donate">Offer Seva & Donation</Link>
+            <Link to="/track-donation">🔍 Track Donation Status</Link>
             <Link to="/contact">Send an Inquiry</Link>
           </div>
         </div>

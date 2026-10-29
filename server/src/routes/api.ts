@@ -1,31 +1,39 @@
 import { Router } from 'express';
+import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import nodemailer from 'nodemailer';
+import multer from 'multer';
+import sharp from 'sharp';
+import rateLimit from 'express-rate-limit';
 import {
   Admin,
   Announcement,
   Donation,
   Event,
   GalleryImage,
+  ImageFile,
   Inquiry,
+  PaymentProof,
   Prasadam,
   Service,
   TempleTiming,
   User,
 } from '../models/index.js';
 import { requireAdmin } from '../middleware/auth.js';
+import {
+  SCREENSHOT_RETENTION_VERIFIED_DAYS,
+  SCREENSHOT_RETENTION_REJECTED_DAYS,
+} from '../config/env.js';
 
 const router = Router();
 const models: any = {
   services: Service,
   events: Event,
   prasadam: Prasadam,
-  gallery: GalleryImage,
   timings: TempleTiming,
   announcements: Announcement,
-  donations: Donation,
 };
 
 const safe = (fn: any) => (req: any, res: any, next: any) =>
@@ -33,9 +41,98 @@ const safe = (fn: any) => (req: any, res: any, next: any) =>
 
 const JWT_SECRET = process.env.JWT_SECRET || 'iskcon_kopargaon_supreme_secret_108';
 
+// Multer memory storage configuration for Donations (Max 5 MB, JPEG / PNG / WebP only)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('Only JPEG, PNG, and WebP images are allowed for screenshot proof.'));
+    }
+    cb(null, true);
+  },
+});
+
+// Multer memory storage configuration for Gallery (Max 8 MB, JPEG / PNG / WebP only)
+const galleryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('Only JPEG, PNG, and WebP images are allowed.'));
+    }
+    cb(null, true);
+  },
+});
+
+// Rate limiter for public donation submissions & tracking (10 reqs per 15 min per IP)
+const donationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: 'Too many donation requests from this IP. Please try again after 15 minutes.' },
+});
+
+// Helper: auto-generate sequential unique reference ID: DON-YYYY-0001
+async function generateReferenceId(): Promise<string> {
+  const year = new Date().getFullYear();
+  const prefix = `DON-${year}-`;
+  const last = await Donation.findOne(
+    { referenceId: new RegExp(`^${prefix}`) },
+    { referenceId: 1 }
+  ).sort({ referenceId: -1 });
+
+  let seq = 1;
+  if (last?.referenceId) {
+    const parts = last.referenceId.split('-');
+    const lastSeq = parseInt(parts[2], 10);
+    if (!isNaN(lastSeq)) seq = lastSeq + 1;
+  }
+
+  let refId = `${prefix}${String(seq).padStart(4, '0')}`;
+  while (await Donation.exists({ referenceId: refId })) {
+    seq++;
+    refId = `${prefix}${String(seq).padStart(4, '0')}`;
+  }
+  return refId;
+}
+
+/* ==========================================================================
+   PUBLIC STREAMING IMAGE ROUTE
+   ========================================================================== */
+
+/**
+ * Public: Stream image stored in MongoDB ImageFile collection
+ * Cache-Control: public, max-age=31536000, immutable
+ */
+router.get(
+  '/images/:id',
+  safe(async (req: any, res: any) => {
+    const { id } = req.params;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ message: 'Image not found' });
+    }
+
+    const imageFile = await ImageFile.findById(id).select('+data');
+    if (!imageFile || !imageFile.data) {
+      return res.status(404).json({ message: 'Image not found' });
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Content-Type', imageFile.mimeType || 'image/webp');
+    res.setHeader('Content-Length', imageFile.size);
+    res.end(imageFile.data);
+  })
+);
+
+/* ==========================================================================
+   AUTH ROUTES
+   ========================================================================== */
+
 router.post(
   '/auth/register',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const schema = z.object({
       name: z.string().min(2, 'Name must be at least 2 characters'),
       email: z.string().email('Invalid email address'),
@@ -80,7 +177,7 @@ router.post(
 
 router.post(
   '/auth/login',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const data = z
       .object({
         email: z.string().email(),
@@ -122,7 +219,7 @@ router.post(
 
 router.get(
   '/auth/me',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ message: 'Not authenticated' });
@@ -150,9 +247,13 @@ router.get(
   })
 );
 
+/* ==========================================================================
+   EVENTS ROUTES
+   ========================================================================== */
+
 router.get(
   '/events',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const q: any = {};
     if (req.query.upcoming === 'true') {
       q.date = { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) };
@@ -166,7 +267,7 @@ router.get(
 
 router.post(
   '/events',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const item = await Event.create(req.body);
     res.status(201).json({ data: item });
   })
@@ -174,7 +275,7 @@ router.post(
 
 router.patch(
   '/events/:id',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const item = await Event.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
@@ -185,16 +286,137 @@ router.patch(
 
 router.delete(
   '/events/:id',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     await Event.findByIdAndDelete(req.params.id);
     res.status(204).end();
   })
 );
 
-for (const key of ['gallery', 'services', 'prasadam', 'timings', 'announcements', 'donations']) {
+/* ==========================================================================
+   GALLERY ROUTES (Stored in MongoDB ImageFile & GalleryImage)
+   ========================================================================== */
+
+router.get(
+  '/gallery',
+  safe(async (_req: any, res: any) => {
+    const data = await GalleryImage.find().sort({ createdAt: -1 });
+    res.json({ data });
+  })
+);
+
+router.post(
+  '/gallery',
+  requireAdmin,
+  (req: any, res: any, next: any) => {
+    galleryUpload.single('image')(req, res, (err: any) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ message: 'Image file size exceeds 8 MB limit.' });
+        }
+        return res.status(400).json({ message: err.message });
+      } else if (err) {
+        return res.status(400).json({ message: err.message });
+      }
+      next();
+    });
+  },
+  safe(async (req: any, res: any) => {
+    const { title, category = 'Deity Darshan', description = '' } = req.body;
+
+    if (!title || !String(title).trim()) {
+      return res.status(400).json({ message: 'Photo title is required.' });
+    }
+
+    let imageUrl = req.body.imageUrl || '';
+    let imageFileId: any = undefined;
+
+    if (req.file) {
+      // Compress with sharp (max width 1600, webp 80)
+      const compressed = await sharp(req.file.buffer)
+        .resize({ width: 1600, withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+
+      const imageFile = await ImageFile.create({
+        filename: req.file.originalname || `${Date.now()}.webp`,
+        mimeType: 'image/webp',
+        size: compressed.length,
+        data: compressed,
+      });
+
+      imageUrl = `/api/images/${imageFile._id}`;
+      imageFileId = imageFile._id;
+    } else if (imageUrl.startsWith('data:')) {
+      // If a base64 string was submitted, extract and compress to ImageFile
+      const match = imageUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+      if (match) {
+        const rawBuffer = Buffer.from(match[2], 'base64');
+        const compressed = await sharp(rawBuffer)
+          .resize({ width: 1600, withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toBuffer();
+
+        const imageFile = await ImageFile.create({
+          filename: 'uploaded.webp',
+          mimeType: 'image/webp',
+          size: compressed.length,
+          data: compressed,
+        });
+
+        imageUrl = `/api/images/${imageFile._id}`;
+        imageFileId = imageFile._id;
+      }
+    }
+
+    if (!imageUrl) {
+      return res.status(400).json({ message: 'Image file or valid image URL is required.' });
+    }
+
+    const item = await GalleryImage.create({
+      title: String(title).trim(),
+      category: String(category).trim() || 'Deity Darshan',
+      description: String(description).trim(),
+      imageUrl,
+      imageFileId,
+    });
+
+    res.status(201).json({ data: item });
+  })
+);
+
+router.delete(
+  '/gallery/:id',
+  requireAdmin,
+  safe(async (req: any, res: any) => {
+    const item = await GalleryImage.findById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: 'Gallery item not found' });
+    }
+
+    // Delete linked ImageFile from MongoDB if present
+    if (item.imageFileId) {
+      await ImageFile.findByIdAndDelete(item.imageFileId);
+    } else if (item.imageUrl && item.imageUrl.startsWith('/api/images/')) {
+      const parts = item.imageUrl.split('/');
+      const possibleId = parts[parts.length - 1];
+      if (mongoose.Types.ObjectId.isValid(possibleId)) {
+        await ImageFile.findByIdAndDelete(possibleId);
+      }
+    }
+
+    await GalleryImage.findByIdAndDelete(req.params.id);
+    res.status(204).end();
+  })
+);
+
+/* ==========================================================================
+   GENERIC CONTENT CRUD ROUTES (Services, Prasadam, Timings, Announcements)
+   ========================================================================== */
+
+for (const key of ['services', 'prasadam', 'timings', 'announcements']) {
   router.get(
     '/' + key,
-    safe(async (_req, res) => {
+    safe(async (_req: any, res: any) => {
       const query = key === 'timings' ? { active: true } : {};
       const data = await models[key].find(query).sort({ createdAt: -1 });
       res.json({ data });
@@ -203,7 +425,7 @@ for (const key of ['gallery', 'services', 'prasadam', 'timings', 'announcements'
 
   router.post(
     '/' + key,
-    safe(async (req, res) => {
+    safe(async (req: any, res: any) => {
       const item = await models[key].create(req.body);
       res.status(201).json({ data: item });
     })
@@ -211,7 +433,7 @@ for (const key of ['gallery', 'services', 'prasadam', 'timings', 'announcements'
 
   router.patch(
     '/' + key + '/:id',
-    safe(async (req, res) => {
+    safe(async (req: any, res: any) => {
       const item = await models[key].findByIdAndUpdate(req.params.id, req.body, {
         new: true,
         runValidators: true,
@@ -222,16 +444,462 @@ for (const key of ['gallery', 'services', 'prasadam', 'timings', 'announcements'
 
   router.delete(
     '/' + key + '/:id',
-    safe(async (req, res) => {
+    safe(async (req: any, res: any) => {
       await models[key].findByIdAndDelete(req.params.id);
       res.status(204).end();
     })
   );
 }
 
+/* ==========================================================================
+   DONATION VERIFICATION ROUTES
+   ========================================================================== */
+
+/**
+ * Public: Submit a donation with payment screenshot proof
+ * Multipart form-data with field 'screenshot'
+ */
+router.post(
+  '/donations',
+  donationLimiter,
+  (req: any, res: any, next: any) => {
+    upload.single('screenshot')(req, res, (err: any) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ message: 'Screenshot file size exceeds 5 MB limit.' });
+        }
+        return res.status(400).json({ message: err.message });
+      } else if (err) {
+        return res.status(400).json({ message: err.message });
+      }
+      next();
+    });
+  },
+  safe(async (req: any, res: any) => {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Payment screenshot proof is required.' });
+    }
+
+    const donationSchema = z.object({
+      donorName: z.string().trim().min(2, 'Name must be at least 2 characters').max(80, 'Name cannot exceed 80 characters'),
+      donorPhone: z.string().trim().regex(/^[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian mobile number'),
+      donorEmail: z.string().trim().email('Invalid email address').optional().or(z.literal('')),
+      amount: z.coerce.number().int().min(1, 'Amount must be at least ₹1').max(500000, 'Amount cannot exceed ₹5,00,000'),
+      transactionId: z.string().trim().min(6, 'Transaction ID must be at least 6 characters').max(30, 'Transaction ID cannot exceed 30 characters').regex(/^[a-zA-Z0-9]+$/, 'Transaction ID must be alphanumeric'),
+      type: z.string().trim().optional(),
+    });
+
+    const data = donationSchema.parse(req.body);
+
+    // Reject duplicate transactionId with a clear message
+    const existing = await Donation.findOne({ transactionId: data.transactionId });
+    if (existing) {
+      return res.status(409).json({
+        message: 'A donation with this Transaction ID has already been submitted. Please check your transaction details.',
+      });
+    }
+
+    // Compress screenshot with sharp (max width 1400, webp quality 80)
+    const compressed = await sharp(req.file.buffer)
+      .resize({ width: 1400, withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toBuffer();
+
+    // Create PaymentProof document (expiresAt is intentionally undefined for pending)
+    const proof = await PaymentProof.create({
+      mimeType: 'image/webp',
+      size: compressed.length,
+      data: compressed,
+    });
+
+    // Extract optional userId if token is present
+    let userId: any = undefined;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        if (decoded?.id) userId = decoded.id;
+      } catch {}
+    }
+
+    const referenceId = await generateReferenceId();
+
+    const donation = await Donation.create({
+      referenceId,
+      donorName: data.donorName,
+      donorPhone: data.donorPhone,
+      donorEmail: data.donorEmail || '',
+      amount: data.amount,
+      type: data.type || 'General Seva',
+      transactionId: data.transactionId,
+      screenshotId: proof._id,
+      status: 'pending',
+      userId,
+    });
+
+    // Optionally email admin via nodemailer
+    try {
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
+        });
+
+        await transporter.sendMail({
+          from: `"ISKCON Kopargaon Website" <${process.env.SMTP_USER}>`,
+          to: process.env.ADMIN_EMAIL || process.env.SMTP_USER,
+          subject: `🙏 New Donation Submitted (${donation.referenceId}) — ₹${donation.amount}`,
+          html: `
+            <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; background: #fdf8ee; padding: 32px; border-radius: 8px; border: 2px solid #d4af37;">
+              <h2 style="color: #b7791f; font-size: 22px; margin-bottom: 4px;">🙏 Hare Krishna — New Donation Awaiting Verification</h2>
+              <p style="color: #78716c; font-size: 13px; margin-bottom: 24px;">Received from ISKCON Kopargaon Website Donation Form</p>
+              
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e; width: 140px;">Reference ID</td>
+                  <td style="padding: 10px 16px;"><strong>${donation.referenceId}</strong></td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Donor Name</td>
+                  <td style="padding: 10px 16px;">${donation.donorName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Phone</td>
+                  <td style="padding: 10px 16px;">${donation.donorPhone}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Amount</td>
+                  <td style="padding: 10px 16px; font-size: 18px; color: #b7791f; font-weight: bold;">₹${donation.amount.toLocaleString('en-IN')}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Seva Type</td>
+                  <td style="padding: 10px 16px;">${donation.type}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Transaction ID</td>
+                  <td style="padding: 10px 16px;"><code>${donation.transactionId}</code></td>
+                </tr>
+              </table>
+
+              <p style="color: #78716c; font-size: 12px; text-align: center; border-top: 1px solid #e7d5a0; padding-top: 12px;">
+                Please log in to the ISKCON Kopargaon Admin Dashboard to review payment proof and verify.
+              </p>
+            </div>
+          `,
+        });
+      }
+    } catch (mailErr: any) {
+      console.warn('📧 Donation notification email notice:', mailErr.message);
+    }
+
+    res.status(201).json({
+      referenceId: donation.referenceId,
+      status: donation.status,
+      message: 'Hare Krishna! Your donation has been received and is pending verification within 24 hours.',
+    });
+  })
+);
+
+/**
+ * Public: Track donation status by referenceId & phone
+ * Returns ONLY { referenceId, amount, status, createdAt, rejectReason }
+ */
+router.get(
+  '/donations/track',
+  donationLimiter,
+  safe(async (req: any, res: any) => {
+    const referenceId = String(req.query.referenceId || '').trim();
+    const phone = String(req.query.phone || '').trim();
+
+    if (!referenceId || !phone) {
+      return res.status(400).json({ message: 'Both Reference ID and Phone Number are required.' });
+    }
+
+    const donation = await Donation.findOne({
+      referenceId: new RegExp(`^${referenceId}$`, 'i'),
+      donorPhone: phone,
+    });
+
+    if (!donation) {
+      return res.status(404).json({
+        message: 'No matching donation found. Please verify your Reference ID and Phone Number.',
+      });
+    }
+
+    res.json({
+      data: {
+        referenceId: donation.referenceId,
+        amount: donation.amount,
+        status: donation.status,
+        createdAt: (donation as any).createdAt,
+        rejectReason: donation.rejectReason || undefined,
+      },
+    });
+  })
+);
+
+/**
+ * Admin: Export donations as CSV
+ */
+router.get(
+  '/donations/export',
+  requireAdmin,
+  safe(async (_req: any, res: any) => {
+    const donations = await Donation.find().sort({ createdAt: -1 }).lean();
+
+    const escapeCsv = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+
+    const headers = [
+      'Reference ID',
+      'Date',
+      'Donor Name',
+      'Phone',
+      'Email',
+      'Amount (INR)',
+      'Seva Type',
+      'Transaction ID',
+      'Status',
+      'Reject Reason',
+      'Verified At',
+    ];
+
+    const rows = donations.map((d: any) =>
+      [
+        escapeCsv(d.referenceId),
+        escapeCsv(d.createdAt ? new Date(d.createdAt).toISOString().split('T')[0] : ''),
+        escapeCsv(d.donorName),
+        escapeCsv(d.donorPhone),
+        escapeCsv(d.donorEmail || ''),
+        d.amount,
+        escapeCsv(d.type),
+        escapeCsv(d.transactionId),
+        escapeCsv(d.status),
+        escapeCsv(d.rejectReason || ''),
+        escapeCsv(d.verifiedAt ? new Date(d.verifiedAt).toISOString() : ''),
+      ].join(',')
+    );
+
+    const csvContent = [headers.join(','), ...rows].join('\r\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="iskcon_kopargaon_donations.csv"');
+    res.send(csvContent);
+  })
+);
+
+/**
+ * Admin: List donations with status filter, pagination, counts & verified sum
+ */
+router.get(
+  '/donations',
+  requireAdmin,
+  safe(async (req: any, res: any) => {
+    const { status, page = 1, limit = 20, from, to } = req.query;
+
+    const q: any = {};
+    if (status && ['pending', 'verified', 'rejected'].includes(status)) {
+      q.status = status;
+    }
+
+    if (from || to) {
+      q.createdAt = {};
+      if (from) q.createdAt.$gte = new Date(from);
+      if (to) {
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
+        q.createdAt.$lte = toDate;
+      }
+    }
+
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+
+    const [total, items, allCount, pendingCount, verifiedCount, rejectedCount, verifiedSumResult] =
+      await Promise.all([
+        Donation.countDocuments(q),
+        Donation.find(q)
+          .sort({ createdAt: -1 })
+          .skip((pageNum - 1) * limitNum)
+          .limit(limitNum)
+          .lean(),
+        Donation.countDocuments(),
+        Donation.countDocuments({ status: 'pending' }),
+        Donation.countDocuments({ status: 'verified' }),
+        Donation.countDocuments({ status: 'rejected' }),
+        Donation.aggregate([
+          { $match: { status: 'verified' } },
+          { $group: { _id: null, total: { $sum: '$amount' } } },
+        ]),
+      ]);
+
+    const verifiedTotal = verifiedSumResult[0]?.total || 0;
+
+    // Check if PaymentProof exists for each item to compute hasScreenshot & screenshotExpiresAt
+    const screenshotIds = items.map((d: any) => d.screenshotId).filter(Boolean);
+    const proofs = await PaymentProof.find(
+      { _id: { $in: screenshotIds } },
+      { _id: 1, expiresAt: 1 }
+    ).lean();
+
+    const proofMap = new Map<string, any>(proofs.map((p: any) => [p._id.toString(), p]));
+
+    const enrichedItems = items.map((d: any) => {
+      const proof = d.screenshotId ? proofMap.get(d.screenshotId.toString()) : null;
+      return {
+        ...d,
+        hasScreenshot: !!proof,
+        screenshotExpiresAt: proof?.expiresAt || null,
+      };
+    });
+
+    res.json({
+      items: enrichedItems,
+      total,
+      verifiedTotal,
+      counts: {
+        all: allCount,
+        pending: pendingCount,
+        verified: verifiedCount,
+        rejected: rejectedCount,
+      },
+    });
+  })
+);
+
+/**
+ * Admin: Stream payment screenshot image
+ */
+router.get(
+  '/donations/:id/screenshot',
+  requireAdmin,
+  safe(async (req: any, res: any) => {
+    const donation = await Donation.findById(req.params.id);
+    if (!donation || !donation.screenshotId) {
+      return res.status(404).json({ message: 'Screenshot deleted' });
+    }
+
+    const proof = await PaymentProof.findById(donation.screenshotId).select('+data');
+    if (!proof || !proof.data) {
+      return res.status(404).json({ message: 'Screenshot deleted' });
+    }
+
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Type', proof.mimeType || 'image/webp');
+    res.setHeader('Content-Length', proof.size);
+    res.end(proof.data);
+  })
+);
+
+/**
+ * Admin: Delete screenshot manually
+ * Only allowed for non-pending donations
+ */
+router.delete(
+  '/donations/:id/screenshot',
+  requireAdmin,
+  safe(async (req: any, res: any) => {
+    const donation = await Donation.findById(req.params.id);
+    if (!donation) return res.status(404).json({ message: 'Donation not found' });
+
+    if (donation.status === 'pending') {
+      return res.status(400).json({ message: 'Verify or reject first' });
+    }
+
+    const now = new Date();
+    if (donation.screenshotId) {
+      await PaymentProof.findByIdAndDelete(donation.screenshotId);
+    }
+    donation.screenshotDeletedAt = now;
+    donation.screenshotDeletedBy = 'admin';
+    await donation.save();
+
+    res.json({ message: 'Screenshot deleted successfully' });
+  })
+);
+
+/**
+ * Admin: Verify donation
+ */
+router.patch(
+  '/donations/:id/verify',
+  requireAdmin,
+  safe(async (req: any, res: any) => {
+    const { deleteScreenshotNow } = req.body || {};
+    const now = new Date();
+
+    const donation = await Donation.findById(req.params.id);
+    if (!donation) return res.status(404).json({ message: 'Donation not found' });
+
+    donation.status = 'verified';
+    donation.verifiedAt = now;
+    donation.verifiedBy = (req as any).user?.id || (req as any).user?._id;
+
+    if (deleteScreenshotNow) {
+      if (donation.screenshotId) {
+        await PaymentProof.findByIdAndDelete(donation.screenshotId);
+      }
+      donation.screenshotDeletedAt = now;
+      donation.screenshotDeletedBy = 'admin';
+    } else if (donation.screenshotId) {
+      const expiresAt = new Date(
+        now.getTime() + SCREENSHOT_RETENTION_VERIFIED_DAYS * 24 * 60 * 60 * 1000
+      );
+      await PaymentProof.findByIdAndUpdate(donation.screenshotId, { expiresAt });
+    }
+
+    await donation.save();
+    res.json({ message: 'Donation verified successfully', data: donation });
+  })
+);
+
+/**
+ * Admin: Reject donation
+ */
+router.patch(
+  '/donations/:id/reject',
+  requireAdmin,
+  safe(async (req: any, res: any) => {
+    const { reason, deleteScreenshotNow } = req.body || {};
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ message: 'Rejection reason is required' });
+    }
+
+    const now = new Date();
+    const donation = await Donation.findById(req.params.id);
+    if (!donation) return res.status(404).json({ message: 'Donation not found' });
+
+    donation.status = 'rejected';
+    donation.rejectReason = reason.trim();
+
+    if (deleteScreenshotNow) {
+      if (donation.screenshotId) {
+        await PaymentProof.findByIdAndDelete(donation.screenshotId);
+      }
+      donation.screenshotDeletedAt = now;
+      donation.screenshotDeletedBy = 'admin';
+    } else if (donation.screenshotId) {
+      const expiresAt = new Date(
+        now.getTime() + SCREENSHOT_RETENTION_REJECTED_DAYS * 24 * 60 * 60 * 1000
+      );
+      await PaymentProof.findByIdAndUpdate(donation.screenshotId, { expiresAt });
+    }
+
+    await donation.save();
+    res.json({ message: 'Donation marked as rejected', data: donation });
+  })
+);
+
+/* ==========================================================================
+   INQUIRIES, SEARCH & CHATBOT ROUTES
+   ========================================================================== */
+
 router.post(
   '/inquiries',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const data = z
       .object({
         name: z.string().trim().min(2).max(100),
@@ -242,52 +910,52 @@ router.post(
 
     await Inquiry.create(data);
 
-    // ── Send email notification to temple admin ──
     try {
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: process.env.SMTP_USER || 'iskconkopargaon@gmail.com',
-          pass: process.env.SMTP_PASS || '', // Set in .env file
-        },
-      });
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.SMTP_USER || 'iskconkopargaon@gmail.com',
+            pass: process.env.SMTP_PASS || '',
+          },
+        });
 
-      await transporter.sendMail({
-        from: `"ISKCON Kopargaon Website" <${process.env.SMTP_USER || 'iskconkopargaon@gmail.com'}>`,
-        to: process.env.ADMIN_EMAIL || 'iskconkopargaon@gmail.com',
-        subject: `🙏 New Inquiry from ${data.name} — ISKCON Kopargaon Website`,
-        html: `
-          <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; background: #fdf8ee; padding: 32px; border-radius: 8px; border: 2px solid #d4af37;">
-            <h2 style="color: #b7791f; font-size: 22px; margin-bottom: 4px;">🙏 Hare Krishna — New Temple Inquiry</h2>
-            <p style="color: #78716c; font-size: 13px; margin-bottom: 24px;">Received from ISKCON Kopargaon Website Contact Form</p>
-            
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-              <tr>
-                <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e; width: 120px;">Name</td>
-                <td style="padding: 10px 16px;">${data.name}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Contact</td>
-                <td style="padding: 10px 16px;">${data.contact}</td>
-              </tr>
-            </table>
+        await transporter.sendMail({
+          from: `"ISKCON Kopargaon Website" <${process.env.SMTP_USER || 'iskconkopargaon@gmail.com'}>`,
+          to: process.env.ADMIN_EMAIL || 'iskconkopargaon@gmail.com',
+          subject: `🙏 New Inquiry from ${data.name} — ISKCON Kopargaon Website`,
+          html: `
+            <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; background: #fdf8ee; padding: 32px; border-radius: 8px; border: 2px solid #d4af37;">
+              <h2 style="color: #b7791f; font-size: 22px; margin-bottom: 4px;">🙏 Hare Krishna — New Temple Inquiry</h2>
+              <p style="color: #78716c; font-size: 13px; margin-bottom: 24px;">Received from ISKCON Kopargaon Website Contact Form</p>
+              
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e; width: 120px;">Name</td>
+                  <td style="padding: 10px 16px;">${data.name}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Contact</td>
+                  <td style="padding: 10px 16px;">${data.contact}</td>
+                </tr>
+              </table>
 
-            <div style="background: #fff; border: 1px solid #e7d5a0; border-radius: 6px; padding: 16px; margin-bottom: 20px;">
-              <p style="color: #92400e; font-weight: bold; margin: 0 0 8px;">Message:</p>
-              <p style="color: #44403c; line-height: 1.7; margin: 0;">${data.message.replace(/\n/g, '<br/>')}</p>
+              <div style="background: #fff; border: 1px solid #e7d5a0; border-radius: 6px; padding: 16px; margin-bottom: 20px;">
+                <p style="color: #92400e; font-weight: bold; margin: 0 0 8px;">Message:</p>
+                <p style="color: #44403c; line-height: 1.7; margin: 0;">${data.message.replace(/\n/g, '<br/>')}</p>
+              </div>
+
+              <p style="color: #78716c; font-size: 12px; text-align: center; border-top: 1px solid #e7d5a0; padding-top: 12px;">
+                Please reply to this devotee at their contact: ${data.contact}<br/>
+                ISKCON Kopargaon — Samskar Value Education Centre, Kopargaon, Maharashtra 423603<br/>
+                📞 +91 90828 60210
+              </p>
             </div>
-
-            <p style="color: #78716c; font-size: 12px; text-align: center; border-top: 1px solid #e7d5a0; padding-top: 12px;">
-              Please reply to this devotee at their contact: ${data.contact}<br/>
-              ISKCON Kopargaon — Samskar Value Education Centre, Kopargaon, Maharashtra 423603<br/>
-              📞 +91 90828 60210
-            </p>
-          </div>
-        `,
-      });
-    } catch (emailErr) {
-      // Email failed — log but don't block response (inquiry is already saved)
-      console.error('📧 Email notification failed (inquiry still saved):', (emailErr as Error).message);
+          `,
+        });
+      }
+    } catch (emailErr: any) {
+      console.error('📧 Email notification failed (inquiry still saved):', emailErr.message);
     }
 
     res.status(201).json({ message: 'Hare Krishna. Inquiry received successfully.' });
@@ -296,7 +964,8 @@ router.post(
 
 router.get(
   '/inquiries',
-  safe(async (_req, res) => {
+  requireAdmin,
+  safe(async (_req: any, res: any) => {
     const data = await Inquiry.find().sort({ createdAt: -1 });
     res.json({ data });
   })
@@ -304,7 +973,7 @@ router.get(
 
 router.get(
   '/search',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.json({ data: [] });
     const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -323,7 +992,7 @@ router.get(
 
 router.post(
   '/chat',
-  safe(async (req, res) => {
+  safe(async (req: any, res: any) => {
     const { message } = z
       .object({
         message: z.string().trim().min(1).max(500),

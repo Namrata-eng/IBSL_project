@@ -127,12 +127,18 @@ const DEFAULT_GALLERY: GalleryPhoto[] = [
 const EVENTS_KEY = 'iskcon_kopargaon_events_v6';
 const GALLERY_KEY = 'iskcon_kopargaon_gallery_v6';
 
-// Automatically purge outdated legacy cache containing dummy placeholder photos
+// Automatically purge outdated legacy cache containing dummy placeholder photos or donation records
 try {
   ['v1', 'v2', 'v3', 'v4', 'v5'].forEach(v => {
     localStorage.removeItem(`iskcon_kopargaon_events_${v}`);
     localStorage.removeItem(`iskcon_kopargaon_gallery_${v}`);
   });
+  localStorage.removeItem('iskcon_kopargaon_donations');
+  localStorage.removeItem('temple_donations');
+  const existingGal = localStorage.getItem(GALLERY_KEY);
+  if (existingGal && existingGal.includes('data:image/')) {
+    localStorage.removeItem(GALLERY_KEY);
+  }
 } catch {}
 
 export async function fetchEvents(): Promise<TempleEvent[]> {
@@ -232,7 +238,11 @@ export async function fetchGallery(): Promise<GalleryPhoto[]> {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.data) && data.data.length > 0) {
-        localStorage.setItem(GALLERY_KEY, JSON.stringify(data.data));
+        // Strip out any legacy base64 images before caching to prevent localStorage quota issues
+        const cleanData = data.data.filter((item: GalleryPhoto) => !item.imageUrl?.startsWith('data:'));
+        try {
+          localStorage.setItem(GALLERY_KEY, JSON.stringify(cleanData));
+        } catch {}
         return data.data;
       }
     }
@@ -244,14 +254,20 @@ export async function fetchGallery(): Promise<GalleryPhoto[]> {
   if (cached) {
     try {
       const parsed: GalleryPhoto[] = JSON.parse(cached);
-      // Check if cache contains legacy unwanted placeholder images
-      const hasLegacyPlaceholder = parsed.some(
+      // Clean base64 items if found in cache
+      const clean = parsed.filter(p => !p.imageUrl?.startsWith('data:'));
+      if (clean.length !== parsed.length) {
+        try {
+          localStorage.setItem(GALLERY_KEY, JSON.stringify(clean));
+        } catch {}
+      }
+      const hasLegacyPlaceholder = clean.some(
         p =>
           p.imageUrl?.includes('photo-1596704017254') ||
           p.imageUrl?.includes('photo-1514565131')
       );
-      if (!hasLegacyPlaceholder && Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (!hasLegacyPlaceholder && Array.isArray(clean) && clean.length > 0) {
+        return clean;
       }
     } catch {}
   }
@@ -260,30 +276,91 @@ export async function fetchGallery(): Promise<GalleryPhoto[]> {
   return DEFAULT_GALLERY;
 }
 
-export async function saveGalleryPhoto(photoData: Omit<GalleryPhoto, '_id'> & { _id?: string }): Promise<GalleryPhoto> {
+export async function saveGalleryPhoto(
+  photoInput: FormData | (Omit<GalleryPhoto, '_id'> & { _id?: string; file?: File })
+): Promise<GalleryPhoto> {
   const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
-  const newPhoto: GalleryPhoto = {
-    ...photoData,
-    _id: photoData._id || 'gal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+  let formData: FormData;
+
+  if (photoInput instanceof FormData) {
+    formData = photoInput;
+  } else {
+    formData = new FormData();
+    if (photoInput._id) formData.append('_id', photoInput._id);
+    formData.append('title', photoInput.title);
+    formData.append('category', photoInput.category || 'Deity Darshan');
+    if (photoInput.description) formData.append('description', photoInput.description);
+    if (photoInput.file) {
+      formData.append('image', photoInput.file);
+    } else if (photoInput.imageUrl) {
+      formData.append('imageUrl', photoInput.imageUrl);
+    }
+  }
+
+  let savedPhoto: GalleryPhoto | null = null;
+
+  try {
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    // Do not manually set Content-Type header when sending FormData
+
+    const res = await fetch('/api/gallery', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.data) {
+        savedPhoto = data.data;
+      }
+    }
+  } catch (err) {
+    console.warn('API gallery upload failed:', err);
+  }
+
+  let title = '';
+  let category = 'Deity Darshan';
+  let description = '';
+  let imageUrl = '';
+  if (photoInput instanceof FormData) {
+    title = (photoInput.get('title') as string) || '';
+    category = (photoInput.get('category') as string) || 'Deity Darshan';
+    description = (photoInput.get('description') as string) || '';
+    imageUrl = (photoInput.get('imageUrl') as string) || '';
+  } else {
+    title = photoInput.title;
+    category = photoInput.category;
+    description = photoInput.description || '';
+    imageUrl = photoInput.imageUrl || '';
+  }
+
+  const finalPhoto: GalleryPhoto = savedPhoto || {
+    ...(photoInput instanceof FormData ? {} : (photoInput as any)),
+    _id: 'gal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+    title,
+    category,
+    imageUrl,
+    description,
     createdAt: new Date().toISOString(),
   };
 
+  const current = await fetchGallery();
+  // Strip any base64 images from caching in localStorage
+  const cleanCurrent = current.filter(p => !p.imageUrl?.startsWith('data:') && p._id !== finalPhoto._id);
+  const updated = finalPhoto.imageUrl?.startsWith('data:')
+    ? cleanCurrent
+    : [finalPhoto, ...cleanCurrent];
+
   try {
-    if (token) {
-      await fetch('/api/gallery', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(newPhoto),
-      });
-    }
+    localStorage.setItem(GALLERY_KEY, JSON.stringify(updated));
   } catch {}
 
-  const current = await fetchGallery();
-  const updated = [newPhoto, ...current.filter(p => p._id !== newPhoto._id)];
-  localStorage.setItem(GALLERY_KEY, JSON.stringify(updated));
-
   window.dispatchEvent(new CustomEvent('temple_gallery_updated', { detail: updated }));
-  return newPhoto;
+  return finalPhoto;
 }
 
 export async function deleteGalleryPhoto(id: string): Promise<boolean> {
@@ -299,7 +376,9 @@ export async function deleteGalleryPhoto(id: string): Promise<boolean> {
 
   const current = await fetchGallery();
   const updated = current.filter(p => p._id !== id);
-  localStorage.setItem(GALLERY_KEY, JSON.stringify(updated));
+  try {
+    localStorage.setItem(GALLERY_KEY, JSON.stringify(updated.filter(p => !p.imageUrl?.startsWith('data:'))));
+  } catch {}
   window.dispatchEvent(new CustomEvent('temple_gallery_updated', { detail: updated }));
   return true;
 }

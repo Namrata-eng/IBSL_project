@@ -18,6 +18,7 @@ import Gallery from './components/pages/Gallery';
 import Donate from './components/pages/Donate';
 import Contact from './components/pages/Contact';
 import SearchPage from './components/pages/SearchPage';
+import TrackDonation from './components/pages/TrackDonation';
 import Login from './components/pages/Login';
 import Signup from './components/pages/Signup';
 import Profile from './components/pages/Profile';
@@ -47,6 +48,7 @@ export function App() {
         <Route path="/prasadam" element={<Prasadam />} />
         <Route path="/gallery" element={<Gallery />} />
         <Route path="/donate" element={<Donate />} />
+        <Route path="/track-donation" element={<TrackDonation />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/search" element={<SearchPage />} />
 

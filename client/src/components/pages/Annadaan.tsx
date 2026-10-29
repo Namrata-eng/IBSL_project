@@ -1,10 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import PageBanner from '../PageBanner';
 import { HeartIcon, LotusIcon } from '../icons';
+import DonationForm from '../DonationForm';
 
-const ANNADAAN_RAZORPAY = 'https://pages.razorpay.com/WWo5n2F8kQuickDonate'; // Replace with actual Razorpay link
+const ANNADAAN_RAZORPAY = 'https://pages.razorpay.com/WWo5n2F8kQuickDonate';
 
 export function Annadaan() {
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
+  const [selectedAmount, setSelectedAmount] = useState<number | string>(1100);
+
   const mealTiers = [
     { title: 'Feed 21 Sadhus & Devotees', amount: 1100, desc: 'Full sanctified thali including rice, dal, subji, puri, and sweet.' },
     { title: 'Feed 51 Sadhus & Devotees', amount: 2500, desc: 'Wholesome nutritious satvik lunch for temple visitors and sadhus.' },
@@ -14,6 +18,8 @@ export function Annadaan() {
 
   const pay = (amount: number) => {
     window.open(`${ANNADAAN_RAZORPAY}?amount=${amount * 100}`, '_blank');
+    setSelectedAmount(amount);
+    setShowVerifyModal(true);
   };
 
   return (
@@ -23,6 +29,46 @@ export function Annadaan() {
         title="Annadaan & Sadhu Bhojan Seva"
         subtitle="No one within ten miles of a temple should go hungry. Experience the joy of feeding souls with pure Krishna Prasadam."
       />
+
+      {/* Verification submission prompt */}
+      <div
+        className="card"
+        style={{
+          maxWidth: '1000px',
+          margin: '0 auto 36px',
+          padding: '16px 24px',
+          background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(12, 25, 40, 0.95) 100%)',
+          border: '1.5px solid var(--gold)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '14px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '24px' }}>🍛</span>
+          <div>
+            <strong style={{ color: 'var(--gold-bright)', fontSize: '15px' }}>
+              Already Made an Annadaan Donation?
+            </strong>
+            <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--ink-soft)' }}>
+              Submit your receipt screenshot and transaction ID for official verification within 24 hours.
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            setSelectedAmount(1100);
+            setShowVerifyModal(true);
+          }}
+          className="btn btn--gold"
+          style={{ padding: '9px 18px', fontSize: '13.5px', fontWeight: 700 }}
+        >
+          ✍️ I Have Paid — Submit Details
+        </button>
+      </div>
 
       <div className="card" style={{ padding: '36px', maxWidth: '1000px', margin: '0 auto 48px', background: 'radial-gradient(circle at 10% 10%, rgba(245,176,65,0.15), rgba(14,28,44,0.8))' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
@@ -78,6 +124,14 @@ export function Annadaan() {
           🙏 Offer Annadaan via Razorpay
         </button>
       </div>
+
+      <DonationForm
+        isOpen={showVerifyModal}
+        onClose={() => setShowVerifyModal(false)}
+        initialAmount={selectedAmount}
+        initialType="Annadaan Seva"
+        title="Submit Annadaan Seva Payment Proof"
+      />
     </main>
   );
 }
