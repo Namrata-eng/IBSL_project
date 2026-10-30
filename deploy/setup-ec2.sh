@@ -73,7 +73,7 @@ ufw --force enable
 ufw status verbose
 
 # 7. Configure Nginx
-echo "🌐 Configuring Nginx reverse proxy..."
+echo "🌐 Configuring Nginx reverse proxy (client_max_body_size 10M)..."
 NGINX_CONF_DEST="/etc/nginx/sites-available/iskcon-kopargaon"
 cp "${APP_DIR}/deploy/nginx-iskcon.conf" "${NGINX_CONF_DEST}"
 

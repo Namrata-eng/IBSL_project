@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import './Hero.css';
 
-const HERO_VIDEO_URL = '/hero.mp4';
+const HERO_VIDEO_URL = '/new_video.mp4';
 const HERO_POSTER_IMAGE = '/krishna_hero.jpg';
 
 const STATS = [

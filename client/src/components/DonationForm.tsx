@@ -68,20 +68,25 @@ export function DonationForm({
     const selected = e.target.files?.[0];
     if (!selected) return;
 
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(selected.type)) {
-      setError('Please select a valid image file (JPEG, PNG, or WebP).');
+    const isPdf = selected.type === 'application/pdf' || selected.name.toLowerCase().endsWith('.pdf');
+    const isImage =
+      ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'].includes(selected.type) ||
+      /\.(jpe?g|png|webp)$/i.test(selected.name);
+
+    if (!isPdf && !isImage) {
+      setError('Please select a valid image (JPEG, PNG, WebP) or PDF receipt file.');
       return;
     }
 
     if (selected.size > 5 * 1024 * 1024) {
-      setError('Screenshot file size must be less than 5 MB.');
+      setError('Proof file size must be less than 5 MB.');
       return;
     }
 
     setError('');
     setFile(selected);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(URL.createObjectURL(selected));
+    setPreviewUrl(isPdf ? '' : URL.createObjectURL(selected));
   };
 
   const handleCopyRef = () => {
@@ -133,8 +138,10 @@ export function DonationForm({
       if (donorEmail.trim()) formData.append('donorEmail', donorEmail.trim());
       formData.append('amount', String(parsedAmount));
       formData.append('type', type.trim() || 'General Seva');
+      formData.append('purpose', type.trim() || 'General Seva');
       formData.append('transactionId', cleanTxn);
       formData.append('screenshot', file);
+      formData.append('proof', file);
 
       // Include Bearer token if user happens to be logged in
       const headers: Record<string, string> = {};
@@ -498,7 +505,7 @@ export function DonationForm({
               {/* Screenshot Upload with Live Preview */}
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--ink-soft)', marginBottom: '5px' }}>
-                  Upload Payment Screenshot / Receipt * (JPEG, PNG, WebP &lt; 5MB)
+                  Upload Payment Screenshot / Receipt Proof * (JPEG, PNG, WebP or PDF &lt; 5MB)
                 </label>
                 <div
                   style={{
@@ -514,13 +521,21 @@ export function DonationForm({
                   <input
                     id="screenshot-file-input"
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
                     required={!file}
                     onChange={handleFileChange}
                     style={{ display: 'none' }}
                   />
 
-                  {previewUrl ? (
+                  {file?.type === 'application/pdf' || file?.name.toLowerCase().endsWith('.pdf') ? (
+                    <div style={{ padding: '8px' }}>
+                      <span style={{ fontSize: '36px', display: 'block', marginBottom: '4px' }}>📄</span>
+                      <strong style={{ color: '#fff', fontSize: '13.5px', display: 'block' }}>{file.name}</strong>
+                      <small style={{ color: 'var(--gold)', fontSize: '12px' }}>
+                        PDF Document ({(file.size / 1024).toFixed(1)} KB) · Click to change file
+                      </small>
+                    </div>
+                  ) : previewUrl ? (
                     <div>
                       <img
                         src={previewUrl}
@@ -543,10 +558,10 @@ export function DonationForm({
                     <div style={{ color: 'var(--ink-faint)', padding: '10px 0' }}>
                       <span style={{ fontSize: '28px', display: 'block', marginBottom: '6px' }}>📸</span>
                       <strong style={{ color: 'var(--gold)', fontSize: '13.5px' }}>
-                        Choose Screenshot Image
+                        Choose Screenshot or PDF Receipt
                       </strong>
                       <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
-                        Attach your UPI or Razorpay successful payment confirmation screen
+                        Attach your UPI confirmation, bank receipt, or Razorpay screenshot/PDF
                       </p>
                     </div>
                   )}

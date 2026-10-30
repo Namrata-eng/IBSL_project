@@ -61,6 +61,8 @@ export function Dashboard() {
 
   // Inquiries State
   const [inquiries, setInquiries] = useState<any[]>([]);
+  const [inquiryFilter, setInquiryFilter] = useState<'all' | 'new' | 'resolved'>('all');
+  const [inquiryActionLoading, setInquiryActionLoading] = useState(false);
 
   // Donations State
   const [donations, setDonations] = useState<any[]>([]);
@@ -91,20 +93,90 @@ export function Dashboard() {
     loadAllData();
   }, [navigate]);
 
-  const loadAllData = async () => {
-    const evts = await fetchEvents();
-    setEvents(evts);
-    const gal = await fetchGallery();
-    setGallery(gal);
-
+  const loadInquiries = async () => {
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
     try {
-      const res = await fetch('/api/inquiries');
+      const res = await fetch('/api/inquiries', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (res.ok) {
         const data = await res.json();
         setInquiries(data.data || []);
       }
-    } catch {}
+    } catch (err) {
+      console.error('Error fetching inquiries:', err);
+    }
+  };
 
+  const handleToggleInquiryStatus = async (inq: any) => {
+    const nextStatus = inq.status === 'resolved' ? 'new' : 'resolved';
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    setInquiryActionLoading(true);
+    try {
+      const res = await fetch(`/api/inquiries/${inq._id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (res.ok) {
+        await loadInquiries();
+      }
+    } catch (err) {
+      console.error('Error updating inquiry status:', err);
+    } finally {
+      setInquiryActionLoading(false);
+    }
+  };
+
+  const handleDeleteInquiry = async (id: string, name: string) => {
+    if (!window.confirm(`Delete query from "${name}"?`)) return;
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    try {
+      const res = await fetch(`/api/inquiries/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        await loadInquiries();
+      }
+    } catch (err) {
+      console.error('Error deleting inquiry:', err);
+    }
+  };
+
+  const handleToggleEventPublish = async (ev: TempleEvent) => {
+    const nextPublished = ev.published === false;
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    try {
+      const res = await fetch(`/api/events/${ev._id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          published: nextPublished,
+          status: nextPublished ? 'approved' : 'hidden',
+        }),
+      });
+      if (res.ok) {
+        const updated = await fetchEvents(true);
+        setEvents(updated);
+      }
+    } catch (err) {
+      console.error('Error toggling event publish status:', err);
+    }
+  };
+
+  const loadAllData = async () => {
+    const evts = await fetchEvents(true);
+    setEvents(evts);
+    const gal = await fetchGallery();
+    setGallery(gal);
+    await loadInquiries();
     loadDonations('all', 1);
   };
 
@@ -330,7 +402,7 @@ export function Dashboard() {
     setEventDesc('');
     setEventImage('');
 
-    const updated = await fetchEvents();
+    const updated = await fetchEvents(true);
     setEvents(updated);
     setTimeout(() => setEventSuccess(''), 4500);
   };
@@ -363,7 +435,7 @@ export function Dashboard() {
     });
 
     setEditEventSuccess(`🎉 Festival "${editEventName}" updated successfully!`);
-    const updated = await fetchEvents();
+    const updated = await fetchEvents(true);
     setEvents(updated);
     setTimeout(() => {
       setEditEventSuccess('');
@@ -374,7 +446,7 @@ export function Dashboard() {
   const handleDeleteEvent = async (id: string, name: string) => {
     if (window.confirm(`Are you sure you want to remove the festival "${name}"?`)) {
       await deleteEvent(id);
-      const updated = await fetchEvents();
+      const updated = await fetchEvents(true);
       setEvents(updated);
     }
   };
@@ -585,7 +657,11 @@ export function Dashboard() {
                   className={`btn ${donationFilter === f ? 'btn--gold' : 'btn--ink'}`}
                   style={{ padding: '6px 14px', fontSize: '13px', textTransform: 'capitalize' }}
                 >
-                  {f === 'all' ? `All (${donationCounts.all})` : `${f} (${donationCounts[f]})`}
+                  {f === 'all'
+                    ? `All (${donationCounts.all})`
+                    : f === 'verified'
+                    ? `✓ Verified Payments (${donationCounts.verified})`
+                    : `${f} (${donationCounts[f]})`}
                 </button>
               ))}
             </div>
@@ -599,6 +675,41 @@ export function Dashboard() {
             </button>
           </div>
 
+          {/* Verified Payments Record List Highlight Banner */}
+          {donationFilter === 'verified' && (
+            <div
+              style={{
+                padding: '16px 22px',
+                marginBottom: '20px',
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '1.5px solid #10b981',
+                borderRadius: '8px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '14px',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', color: '#34d399', fontWeight: 700 }}>
+                  ✓ Verified Payments Record List
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: '13px', color: 'var(--ink-soft)' }}>
+                  All bank transfers and UPI offerings that have been manually audited, verified, and credited.
+                </p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '11.5px', color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Total Verified Seva
+                </span>
+                <div style={{ fontSize: '22px', fontWeight: 700, color: '#34d399' }}>
+                  ₹{verifiedTotal.toLocaleString('en-IN')}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Donations Table */}
           <div className="card" style={{ padding: '0', overflowX: 'auto', marginBottom: '24px' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13.5px' }}>
@@ -606,7 +717,8 @@ export function Dashboard() {
                 <tr style={{ background: 'rgba(255, 255, 255, 0.04)', borderBottom: '1px solid var(--hairline-gold)' }}>
                   <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Date</th>
                   <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Ref ID</th>
-                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Donor Name</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)', textAlign: 'center' }}>Proof</th>
+                  <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Donor / User</th>
                   <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Phone / Email</th>
                   <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Amount</th>
                   <th style={{ padding: '14px 18px', color: 'var(--gold)' }}>Seva Type</th>
@@ -618,78 +730,132 @@ export function Dashboard() {
               <tbody>
                 {loadingDonations ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)' }}>
+                    <td colSpan={10} style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)' }}>
                       Loading donation records...
                     </td>
                   </tr>
                 ) : donations.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)' }}>
+                    <td colSpan={10} style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)' }}>
                       No donations found for this filter.
                     </td>
                   </tr>
                 ) : (
-                  donations.map((d: any) => (
-                    <tr
-                      key={d._id}
-                      onClick={() => openDonationModal(d)}
-                      style={{
-                        borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-                        cursor: 'pointer',
-                        transition: 'background 0.15s',
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)')}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                    >
-                      <td style={{ padding: '14px 18px', whiteSpace: 'nowrap' }}>
-                        {new Date(d.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                      </td>
-                      <td style={{ padding: '14px 18px', fontFamily: 'monospace', fontWeight: 700, color: '#fff' }}>
-                        {d.referenceId}
-                      </td>
-                      <td style={{ padding: '14px 18px', fontWeight: 600 }}>{d.donorName}</td>
-                      <td style={{ padding: '14px 18px', color: 'var(--ink-soft)' }}>
-                        <div>{d.donorPhone}</div>
-                        {d.donorEmail && <small style={{ color: 'var(--ink-faint)' }}>{d.donorEmail}</small>}
-                      </td>
-                      <td style={{ padding: '14px 18px', fontWeight: 700, color: 'var(--gold-bright)' }}>
-                        ₹{d.amount?.toLocaleString('en-IN')}
-                      </td>
-                      <td style={{ padding: '14px 18px' }}>{d.type}</td>
-                      <td style={{ padding: '14px 18px', fontFamily: 'monospace', fontSize: '12.5px', color: 'var(--ink-soft)' }}>
-                        {d.transactionId}
-                      </td>
-                      <td style={{ padding: '14px 18px' }}>
-                        {d.status === 'pending' && (
-                          <span style={{ color: '#fbbf24', background: 'rgba(245, 158, 11, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
-                            Pending
-                          </span>
-                        )}
-                        {d.status === 'verified' && (
-                          <span style={{ color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
-                            Verified
-                          </span>
-                        )}
-                        {d.status === 'rejected' && (
-                          <span style={{ color: '#f87171', background: 'rgba(239, 68, 68, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
-                            Rejected
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ padding: '14px 18px', textAlign: 'center' }}>
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            openDonationModal(d);
-                          }}
-                          className="btn btn--ink"
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
-                        >
-                          👁️ Review Proof
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  donations.map((d: any) => {
+                    const isPdf = d.mimeType === 'application/pdf' || d.proofUrl?.endsWith('.pdf');
+                    return (
+                      <tr
+                        key={d._id}
+                        onClick={() => openDonationModal(d)}
+                        style={{
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+                          cursor: 'pointer',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)')}
+                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <td style={{ padding: '14px 18px', whiteSpace: 'nowrap' }}>
+                          {new Date(d.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </td>
+                        <td style={{ padding: '14px 18px', fontFamily: 'monospace', fontWeight: 700, color: '#fff' }}>
+                          {d.referenceId}
+                        </td>
+                        <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                          {d.hasScreenshot ? (
+                            isPdf ? (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  background: 'rgba(239, 68, 68, 0.15)',
+                                  color: '#f87171',
+                                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                                  padding: '3px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                📄 PDF
+                              </span>
+                            ) : (
+                              <img
+                                src={`/api/donations/${d._id}/screenshot?token=${localStorage.getItem('adminToken') || ''}`}
+                                alt="Proof"
+                                style={{
+                                  width: '38px',
+                                  height: '38px',
+                                  objectFit: 'cover',
+                                  borderRadius: '4px',
+                                  border: '1px solid var(--hairline-gold)',
+                                  display: 'inline-block',
+                                  verticalAlign: 'middle',
+                                }}
+                                onError={e => {
+                                  (e.currentTarget as HTMLElement).style.display = 'none';
+                                }}
+                              />
+                            )
+                          ) : (
+                            <span style={{ color: 'var(--ink-muted)', fontSize: '11px' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 18px', fontWeight: 600 }}>
+                          <div>{d.donorName || (d.user && typeof d.user === 'object' ? d.user.name || d.user.email : d.user)}</div>
+                          {d.user && typeof d.user === 'object' && d.user.name && d.user.name !== d.donorName && (
+                            <small style={{ color: 'var(--ink-faint)', display: 'block' }}>User: {d.user.name}</small>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 18px', color: 'var(--ink-soft)' }}>
+                          <div>{d.donorPhone}</div>
+                          {d.donorEmail && <small style={{ color: 'var(--ink-faint)' }}>{d.donorEmail}</small>}
+                        </td>
+                        <td style={{ padding: '14px 18px', fontWeight: 700, color: 'var(--gold-bright)' }}>
+                          ₹{d.amount?.toLocaleString('en-IN')}
+                        </td>
+                        <td style={{ padding: '14px 18px' }}>
+                          <div>{d.type}</div>
+                          {d.purpose && d.purpose !== d.type && (
+                            <small style={{ color: 'var(--gold)', display: 'block' }}>{d.purpose}</small>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 18px', fontFamily: 'monospace', fontSize: '12.5px', color: 'var(--ink-soft)' }}>
+                          {d.transactionId}
+                        </td>
+                        <td style={{ padding: '14px 18px' }}>
+                          {d.status === 'pending' && (
+                            <span style={{ color: '#fbbf24', background: 'rgba(245, 158, 11, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                              Pending
+                            </span>
+                          )}
+                          {d.status === 'verified' && (
+                            <span style={{ color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                              Verified
+                            </span>
+                          )}
+                          {d.status === 'rejected' && (
+                            <span style={{ color: '#f87171', background: 'rgba(239, 68, 68, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 700 }}>
+                              Rejected
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '14px 18px', textAlign: 'center' }}>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              openDonationModal(d);
+                            }}
+                            className="btn btn--ink"
+                            style={{ padding: '6px 12px', fontSize: '12px' }}
+                          >
+                            👁️ Review
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -845,29 +1011,73 @@ export function Dashboard() {
                     </div>
                   ) : screenshotBlobUrl ? (
                     <div style={{ textAlign: 'center' }}>
-                      <div
-                        style={{
-                          background: '#0a1018',
-                          borderRadius: '8px',
-                          border: '1px solid var(--hairline-gold)',
-                          padding: '8px',
-                          display: 'inline-block',
-                          maxWidth: '100%',
-                        }}
-                      >
-                        <img
-                          src={screenshotBlobUrl}
-                          alt="Donation Proof"
-                          style={{
-                            maxHeight: '360px',
-                            maxWidth: '100%',
-                            objectFit: 'contain',
-                            borderRadius: '4px',
-                            display: 'block',
-                            margin: '0 auto',
-                          }}
-                        />
-                      </div>
+                      {(selectedDonation.mimeType === 'application/pdf' || selectedDonation.proofUrl?.endsWith('.pdf')) ? (
+                        <div>
+                          <div style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', marginBottom: '12px' }}>
+                            <span style={{ fontSize: '20px', display: 'inline-block', marginRight: '6px' }}>📄</span>
+                            <strong style={{ color: '#fff', fontSize: '13.5px' }}>PDF Payment Receipt / Bank Statement</strong>
+                          </div>
+                          <iframe
+                            src={screenshotBlobUrl}
+                            title="Payment Proof PDF"
+                            style={{
+                              width: '100%',
+                              height: '420px',
+                              border: '1px solid var(--hairline-gold)',
+                              borderRadius: '6px',
+                              background: '#fff',
+                            }}
+                          />
+                          <div style={{ marginTop: '10px' }}>
+                            <a
+                              href={screenshotBlobUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn btn--pearl"
+                              style={{ padding: '6px 14px', fontSize: '12.5px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                            >
+                              <span>↗ Open / Download PDF</span>
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div
+                            style={{
+                              background: '#0a1018',
+                              borderRadius: '8px',
+                              border: '1px solid var(--hairline-gold)',
+                              padding: '8px',
+                              display: 'inline-block',
+                              maxWidth: '100%',
+                            }}
+                          >
+                            <img
+                              src={screenshotBlobUrl}
+                              alt="Donation Proof"
+                              style={{
+                                maxHeight: '360px',
+                                maxWidth: '100%',
+                                objectFit: 'contain',
+                                borderRadius: '4px',
+                                display: 'block',
+                                margin: '0 auto',
+                              }}
+                            />
+                          </div>
+                          <div style={{ marginTop: '10px' }}>
+                            <a
+                              href={screenshotBlobUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn btn--ink"
+                              style={{ padding: '5px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                            >
+                              <span>↗ View Full Image in New Tab</span>
+                            </a>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Expiration date notice if set */}
                       {selectedDonation.screenshotExpiresAt && (
@@ -1079,21 +1289,27 @@ export function Dashboard() {
               These images are visible to all devotees on the Darshan Gallery page.
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
-              {gallery.map(p => (
-                <div key={p._id} className="card" style={{ padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                  <div>
-                    <div style={{ height: '130px', borderRadius: '8px', backgroundImage: `url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', marginBottom: '10px' }} />
-                    <span className="eyebrow" style={{ fontSize: '10px' }}>{p.category}</span>
-                    <h4 style={{ fontSize: '15px', margin: '4px 0 6px', color: 'var(--ink)' }}>{p.title}</h4>
+            {gallery.length === 0 ? (
+              <div style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)', border: '1px dashed var(--hairline-gold)', borderRadius: '8px' }}>
+                No photos published in the Darshan Gallery yet.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
+                {gallery.map(p => (
+                  <div key={p._id} className="card" style={{ padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ height: '130px', borderRadius: '8px', backgroundImage: `url(${p.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', marginBottom: '10px' }} />
+                      <span className="eyebrow" style={{ fontSize: '10px' }}>{p.category}</span>
+                      <h4 style={{ fontSize: '15px', margin: '4px 0 6px', color: 'var(--ink)' }}>{p.title}</h4>
+                    </div>
+                    <button onClick={() => handleDeletePhoto(p._id, p.title)} className="btn btn--ink" style={{ padding: '6px 10px', fontSize: '12px', marginTop: '10px', color: '#f87171', justifyContent: 'center' }}>
+                      <TrashIcon size={14} />
+                      <span>Delete Photo</span>
+                    </button>
                   </div>
-                  <button onClick={() => handleDeletePhoto(p._id, p.title)} className="btn btn--ink" style={{ padding: '6px 10px', fontSize: '12px', marginTop: '10px', color: '#f87171', justifyContent: 'center' }}>
-                    <TrashIcon size={14} />
-                    <span>Delete Photo</span>
-                  </button>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1197,29 +1413,58 @@ export function Dashboard() {
               These events drive the live countdown bell notification and upcoming schedule.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {events.map(e => (
-                <div key={e._id} className="card" style={{ padding: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <span className="eyebrow" style={{ fontSize: '11px' }}>{e.category}</span>
-                    <h4 style={{ fontSize: '17px', margin: '2px 0 4px', color: 'var(--ink)' }}>{e.name}</h4>
-                    <p style={{ fontSize: '13px', color: 'var(--gold)', margin: 0 }}>
-                      📅 {new Date(e.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} · 🕒 {e.time || 'All Day'}
-                    </p>
+            {events.length === 0 ? (
+              <div style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-soft)', border: '1px dashed var(--hairline-gold)', borderRadius: '8px' }}>
+                No festivals or events scheduled yet.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {events.map(e => (
+                  <div key={e._id} className="card" style={{ padding: '18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                    <div style={{ flex: 1, minWidth: '220px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <span className="eyebrow" style={{ fontSize: '11px', margin: 0 }}>{e.category}</span>
+                        {e.published !== false ? (
+                          <span style={{ color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700 }}>
+                            ✓ Active / Approved
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', background: 'rgba(148, 163, 184, 0.15)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700 }}>
+                            ✕ Hidden
+                          </span>
+                        )}
+                      </div>
+                      <h4 style={{ fontSize: '17px', margin: '2px 0 4px', color: 'var(--ink)' }}>{e.name}</h4>
+                      <p style={{ fontSize: '13px', color: 'var(--gold)', margin: 0 }}>
+                        📅 {new Date(e.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} · 🕒 {e.time || 'All Day'}
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleEventPublish(e)}
+                        className={`btn ${e.published !== false ? 'btn--ink' : 'btn--pearl'}`}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12.5px',
+                          ...(e.published === false ? { background: '#10b981', borderColor: '#10b981', color: '#fff' } : {}),
+                        }}
+                      >
+                        {e.published !== false ? '👁️ Hide' : '✓ Approve / Show'}
+                      </button>
+                      <button onClick={() => handleStartEditEvent(e)} className="btn btn--gold" style={{ padding: '8px 12px', fontSize: '13px' }}>
+                        <span>✏️</span>
+                        <span>Edit</span>
+                      </button>
+                      <button onClick={() => handleDeleteEvent(e._id, e.name)} className="btn btn--ink" style={{ padding: '8px 12px', color: '#f87171' }}>
+                        <TrashIcon size={16} />
+                        <span>Delete</span>
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => handleStartEditEvent(e)} className="btn btn--gold" style={{ padding: '8px 12px', fontSize: '13px' }}>
-                      <span>✏️</span>
-                      <span>Edit</span>
-                    </button>
-                    <button onClick={() => handleDeleteEvent(e._id, e.name)} className="btn btn--ink" style={{ padding: '8px 12px', color: '#f87171' }}>
-                      <TrashIcon size={16} />
-                      <span>Delete</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Edit Event Modal in Dashboard */}
@@ -1321,38 +1566,161 @@ export function Dashboard() {
           ========================================================================= */}
       {activeTab === 'inquiries' && (
         <div className="card" style={{ padding: '36px' }}>
-          <h3 style={{ fontSize: '22px', marginBottom: '6px' }}>Devotee & Pilgrim Inquiries</h3>
-          <p style={{ color: 'var(--ink-faint)', fontSize: '14px', marginBottom: '24px' }}>
-            Messages received via the Contact Us form and temple inquiry helpdesk.
-          </p>
-
-          {inquiries.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {inquiries.map((inq: any, i) => (
-                <div
-                  key={inq._id || i}
-                  style={{
-                    padding: '20px',
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'rgba(6, 15, 24, 0.8)',
-                    border: '1px solid var(--hairline-gold)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <strong style={{ color: 'var(--gold)', fontSize: '16px' }}>{inq.name}</strong>
-                    <span style={{ fontSize: '12px', color: 'var(--ink-muted)' }}>
-                      {inq.contact || 'No contact provided'}
-                    </span>
-                  </div>
-                  <p style={{ color: 'var(--ink-soft)', fontSize: '14px', margin: 0, lineHeight: 1.6 }}>
-                    "{inq.message}"
-                  </p>
-                </div>
-              ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+            <div>
+              <h3 style={{ fontSize: '22px', margin: '0 0 6px' }}>Devotee & Pilgrim Inquiries</h3>
+              <p style={{ color: 'var(--ink-faint)', fontSize: '14px', margin: 0 }}>
+                Messages received via the Contact Us form and temple inquiry helpdesk.
+              </p>
             </div>
-          ) : (
-            <p className="placeholder">No pending visitor inquiries at the moment.</p>
-          )}
+
+            {/* Filter buttons */}
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {(['all', 'new', 'resolved'] as const).map(f => {
+                const count = f === 'all'
+                  ? inquiries.length
+                  : inquiries.filter(i => (i.status || 'new') === f).length;
+                return (
+                  <button
+                    key={f}
+                    onClick={() => setInquiryFilter(f)}
+                    className={`btn ${inquiryFilter === f ? 'btn--gold' : 'btn--ink'}`}
+                    style={{ padding: '6px 14px', fontSize: '13px', textTransform: 'capitalize' }}
+                  >
+                    {f === 'all' ? `All (${count})` : `${f} (${count})`}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {(() => {
+            const filtered = inquiries.filter(inq => {
+              if (inquiryFilter === 'all') return true;
+              return (inq.status || 'new') === inquiryFilter;
+            });
+
+            if (filtered.length === 0) {
+              return (
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--ink-soft)', border: '1px dashed var(--hairline-gold)', borderRadius: '8px' }}>
+                  No devotee inquiries found.
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {filtered.map((inq: any, i) => {
+                  const isResolved = inq.status === 'resolved';
+                  const cleanPhone = (inq.phone || inq.contact || '').replace(/\D/g, '');
+                  return (
+                    <div
+                      key={inq._id || i}
+                      style={{
+                        padding: '22px',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'rgba(6, 15, 24, 0.8)',
+                        border: isResolved ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--hairline-gold)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <strong style={{ color: 'var(--gold)', fontSize: '17px' }}>{inq.name}</strong>
+                            {isResolved ? (
+                              <span style={{ color: '#34d399', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700 }}>
+                                ✓ Resolved
+                              </span>
+                            ) : (
+                              <span style={{ color: '#fbbf24', background: 'rgba(245, 158, 11, 0.15)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700 }}>
+                                🔔 New
+                              </span>
+                            )}
+                          </div>
+                          {inq.createdAt && (
+                            <span style={{ fontSize: '12px', color: 'var(--ink-muted)', display: 'block', marginTop: '2px' }}>
+                              Submitted on {new Date(inq.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            disabled={inquiryActionLoading}
+                            onClick={() => handleToggleInquiryStatus(inq)}
+                            className={isResolved ? 'btn btn--ink' : 'btn btn--pearl'}
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '12px',
+                              ...(isResolved ? {} : { background: '#10b981', borderColor: '#10b981', color: '#fff' }),
+                            }}
+                          >
+                            {isResolved ? '↩ Reopen Query' : '✓ Mark as Resolved'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteInquiry(inq._id, inq.name)}
+                            className="btn btn--ink"
+                            style={{ padding: '6px 10px', fontSize: '12px', color: '#f87171' }}
+                            title="Delete inquiry"
+                          >
+                            <TrashIcon size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Contact metadata row */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '13px', marginBottom: '12px', color: 'var(--ink-soft)' }}>
+                        {(inq.phone || inq.contact) && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>📞</span>
+                            <a href={`tel:${inq.phone || inq.contact}`} style={{ color: 'var(--ink)' }}>
+                              {inq.phone || inq.contact}
+                            </a>
+                            {cleanPhone && (
+                              <a
+                                href={`https://wa.me/91${cleanPhone.slice(-10)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  fontSize: '11px',
+                                  color: '#22c55e',
+                                  background: 'rgba(34, 197, 94, 0.1)',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  textDecoration: 'none',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                💬 WhatsApp
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {inq.email && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>✉️</span>
+                            <a href={`mailto:${inq.email}`} style={{ color: 'var(--ink)' }}>
+                              {inq.email}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      {inq.subject && (
+                        <div style={{ fontSize: '13.5px', color: 'var(--gold-bright)', marginBottom: '8px', fontWeight: 600 }}>
+                          Subject: {inq.subject}
+                        </div>
+                      )}
+
+                      <p style={{ color: '#e2e8f0', fontSize: '14px', margin: 0, lineHeight: 1.6, background: 'rgba(0,0,0,0.25)', padding: '12px 14px', borderRadius: '6px', borderLeft: '3px solid var(--gold)' }}>
+                        "{inq.message}"
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
     </main>

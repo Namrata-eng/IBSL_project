@@ -11,8 +11,12 @@ import api from './routes/api.js';
 import { connectDb, seedDefaultAdmin } from './models/index.js';
 
 // Ensure the upload directory exists
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
+} catch (dirErr) {
+  console.warn('⚠️ Warning creating primary UPLOAD_DIR (will use local fallback):', dirErr);
 }
 
 const app = express();
@@ -20,13 +24,13 @@ app.set('trust proxy', 1);
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-const clientUrl = process.env.CLIENT_URL;
+// Allow CORS for any requesting origin (localhost, EC2 IP, domain, HTTP/HTTPS) with credentials
 app.use(cors({
-  origin: clientUrl ? clientUrl.split(',').map((u) => u.trim()) : 'http://localhost:5173',
+  origin: true,
   credentials: true,
 }));
 
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000 }));
 
 // Serve uploaded media files with caching headers
 app.use('/uploads', express.static(UPLOAD_DIR, {
@@ -44,10 +48,13 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api', api);
 
-app.use((_err: any, _req: any, res: any, _next: any) => {
-  if (_err?.name === 'ZodError') return res.status(400).json({ message: 'Please check the submitted information.' });
-  console.error(_err);
-  res.status(500).json({ message: 'Something went wrong. Please try again.' });
+app.use((err: any, _req: any, res: any, _next: any) => {
+  console.error('❌ Global Server Error:', err);
+  if (err?.name === 'ZodError') {
+    const errorDetails = err.errors?.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ') || err.message;
+    return res.status(400).json({ message: `Validation Error: ${errorDetails}`, errors: err.errors });
+  }
+  res.status(err.status || 500).json({ message: err.message || 'Something went wrong. Please try again.' });
 });
 
 const port = Number(process.env.PORT) || 5000;

@@ -14,28 +14,43 @@ export function Contact() {
 
     const form = e.currentTarget;
     const f = new FormData(form);
-    const name = (f.get('name') as string) || '';
-    const contact = (f.get('contact') as string) || '';
-    const message = (f.get('message') as string) || '';
+    const name = ((f.get('name') as string) || '').trim();
+    const phone = ((f.get('phone') as string) || '').trim();
+    const email = ((f.get('email') as string) || '').trim();
+    const subject = ((f.get('subject') as string) || '').trim() || 'General Inquiry';
+    const message = ((f.get('message') as string) || '').trim();
+    const contact = [phone, email].filter(Boolean).join(' | ');
 
+    // 1. ALWAYS save in MongoDB so no inquiry is ever lost
     try {
       await fetch('/api/inquiries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.fromEntries(f)),
+        body: JSON.stringify({
+          name,
+          phone,
+          email,
+          contact,
+          subject,
+          message,
+        }),
       });
-    } catch {}
+    } catch (saveErr) {
+      console.warn('Backend query save note:', saveErr);
+    }
 
-    // Build a readable, pre-filled WhatsApp message
+    // 2. Build full pre-filled WhatsApp message with all details
     const whatsappText =
-      `Hare Krishna! I would like to send an inquiry.\n\n` +
-      `*Name:* ${name}\n` +
-      `*Contact:* ${contact}\n` +
-      `*Message:* ${message}`;
+      `🙏 *Hare Krishna! ISKCON Kopargaon Temple Inquiry*\n\n` +
+      `👤 *Name:* ${name}\n` +
+      `📞 *Phone:* ${phone}\n` +
+      `✉️ *Email:* ${email || 'Not provided'}\n` +
+      `📋 *Subject:* ${subject}\n` +
+      `💬 *Message:* ${message}`;
 
     const whatsappUrl = `https://wa.me/${TEMPLE_WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappText)}`;
 
-    // Open WhatsApp in a new tab with the message pre-filled
+    // Open WhatsApp in a new tab with all details pre-filled
     window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
 
     setDone(true);
@@ -107,27 +122,45 @@ export function Contact() {
           <h3 style={{ fontSize: '19px', margin: '4px 0 16px', color: 'var(--ink)' }}>How Can We Assist You?</h3>
 
           <label>
-            Your Full Name
-            <input required name="name" placeholder="Devotee name" />
+            Your Full Name *
+            <input required name="name" placeholder="e.g. Ramesh Patil" />
+          </label>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <label>
+              Mobile Phone *
+              <input required name="phone" type="tel" placeholder="e.g. 9876543210" />
+            </label>
+            <label>
+              Email Address (Optional)
+              <input name="email" type="email" placeholder="e.g. ramesh@example.com" />
+            </label>
+          </div>
+
+          <label>
+            Subject / Purpose of Inquiry
+            <select name="subject" defaultValue="General Temple Inquiry">
+              <option value="Temple Visit & Darshan Timings">Temple Visit & Darshan Timings</option>
+              <option value="Sadhu Bhojan & Annadaan Seva">Sadhu Bhojan & Annadaan Seva</option>
+              <option value="Gaushala & Desi Cow Protection">Gaushala & Desi Cow Protection</option>
+              <option value="Youth Empowerment & Gita Life Courses">Youth Empowerment & Gita Life Courses</option>
+              <option value="Upcoming Festival Sponsorship">Upcoming Festival Sponsorship</option>
+              <option value="General Temple Inquiry">General Temple Inquiry</option>
+            </select>
           </label>
 
           <label>
-            Contact Phone or Email
-            <input required name="contact" placeholder="Mobile number or email" />
+            Message / Inquiry Details *
+            <textarea required name="message" rows={4} placeholder="Ask about temple visits, seva sponsorship, accommodation, or festival pujas..." />
           </label>
 
-          <label>
-            Message / Inquiry
-            <textarea required name="message" rows={4} placeholder="Ask about temple visits, Annadaan, youth programs, or seva..." />
-          </label>
-
-          <button className="btn btn--pearl" disabled={loading}>
-            {loading ? 'Opening WhatsApp…' : 'Send Inquiry Message'}
+          <button className="btn btn--pearl" disabled={loading} style={{ justifyContent: 'center' }}>
+            {loading ? 'Opening WhatsApp…' : 'Send Inquiry (WhatsApp & Temple Record)'}
           </button>
 
           {done && (
             <p className="success">
-              Hare Krishna! Your inquiry has been sent to our temple sevaks via WhatsApp.
+              🙏 Hare Krishna! Your inquiry has been saved in the temple database and opened in WhatsApp. Our sevaks will respond promptly.
             </p>
           )}
         </form>

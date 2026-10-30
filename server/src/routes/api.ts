@@ -45,14 +45,16 @@ const safe = (fn: any) => (req: any, res: any, next: any) =>
 
 const JWT_SECRET = process.env.JWT_SECRET || 'iskcon_kopargaon_supreme_secret_108';
 
-// Multer memory storage configuration for Donations (Max 5 MB, JPEG / PNG / WebP only)
+// Multer memory storage configuration for Donations (Max 5 MB, JPEG / PNG / WebP / PDF)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowed.includes(file.mimetype)) {
-      return cb(new Error('Only JPEG, PNG, and WebP images are allowed for screenshot proof.'));
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'application/pdf'];
+    const isPdf = file.mimetype === 'application/pdf' || file.originalname?.toLowerCase().endsWith('.pdf');
+    const isImage = file.mimetype?.startsWith('image/') || allowed.includes(file.mimetype);
+    if (!allowed.includes(file.mimetype) && !isPdf && !isImage) {
+      return cb(new Error('Only JPEG, PNG, WebP images and PDF documents (up to 5 MB) are allowed for payment proof.'));
     }
     cb(null, true);
   },
@@ -331,9 +333,13 @@ router.get(
     if (req.query.upcoming === 'true') {
       q.date = { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) };
     }
+    // Admin dashboard can request all events (including hidden / custom) with ?all=true
+    if (req.query.all !== 'true' && req.query.admin !== 'true') {
+      q.published = { $ne: false };
+    }
     const data = await Event.find(q)
       .sort({ date: 1 })
-      .limit(Math.min(Number(req.query.limit) || 50, 100));
+      .limit(Math.min(Number(req.query.limit) || 100, 200));
     res.json({ data });
   })
 );
@@ -341,13 +347,25 @@ router.get(
 router.post(
   '/events',
   safe(async (req: any, res: any) => {
-    const item = await Event.create(req.body);
+    const payload = { ...req.body };
+    // Prevent CastError if client sent a temporary string _id like 'evt_...'
+    if (payload._id && typeof payload._id === 'string' && payload._id.startsWith('evt_')) {
+      delete payload._id;
+    }
+    if (payload.published === undefined) {
+      payload.published = true;
+    }
+    if (!payload.status) {
+      payload.status = payload.published ? 'approved' : 'hidden';
+    }
+    const item = await Event.create(payload);
     res.status(201).json({ data: item });
   })
 );
 
 router.patch(
   '/events/:id',
+  requireAdmin,
   safe(async (req: any, res: any) => {
     const item = await Event.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
@@ -359,6 +377,7 @@ router.patch(
 
 router.put(
   '/events/:id',
+  requireAdmin,
   safe(async (req: any, res: any) => {
     const item = await Event.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
@@ -370,6 +389,7 @@ router.put(
 
 router.delete(
   '/events/:id',
+  requireAdmin,
   safe(async (req: any, res: any) => {
     await Event.findByIdAndDelete(req.params.id);
     res.status(204).end();
@@ -551,17 +571,17 @@ for (const key of ['services', 'prasadam', 'timings', 'announcements']) {
    ========================================================================== */
 
 /**
- * Public: Submit a donation with payment screenshot proof
- * Multipart form-data with field 'screenshot'
+ * Public: Submit a donation with payment screenshot or PDF proof
+ * Multipart form-data with field 'screenshot', 'proof', or 'file'
  */
 router.post(
   '/donations',
   donationLimiter,
   (req: any, res: any, next: any) => {
-    upload.single('screenshot')(req, res, (err: any) => {
+    upload.any()(req, res, (err: any) => {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({ message: 'Screenshot file size exceeds 5 MB limit.' });
+          return res.status(400).json({ message: 'Proof file size exceeds 5 MB limit.' });
         }
         return res.status(400).json({ message: err.message });
       } else if (err) {
@@ -571,8 +591,14 @@ router.post(
     });
   },
   safe(async (req: any, res: any) => {
-    if (!req.file) {
-      return res.status(400).json({ message: 'Payment screenshot proof is required.' });
+    // Look for proof file under any common field name
+    const uploadedFile =
+      req.file ||
+      req.files?.find((f: any) => ['screenshot', 'proof', 'paymentProof', 'file'].includes(f.fieldname)) ||
+      req.files?.[0];
+
+    if (!uploadedFile) {
+      return res.status(400).json({ message: 'Payment screenshot or PDF receipt proof is required.' });
     }
 
     const donationSchema = z.object({
@@ -582,6 +608,7 @@ router.post(
       amount: z.coerce.number().int().min(1, 'Amount must be at least ₹1').max(500000, 'Amount cannot exceed ₹5,00,000'),
       transactionId: z.string().trim().min(6, 'Transaction ID must be at least 6 characters').max(30, 'Transaction ID cannot exceed 30 characters').regex(/^[a-zA-Z0-9]+$/, 'Transaction ID must be alphanumeric'),
       type: z.string().trim().optional(),
+      purpose: z.string().trim().optional(),
     });
 
     const data = donationSchema.parse(req.body);
@@ -594,17 +621,43 @@ router.post(
       });
     }
 
-    // Compress screenshot with sharp (max width 1400, webp quality 80)
-    const compressed = await sharp(req.file.buffer)
-      .resize({ width: 1400, withoutEnlargement: true })
-      .webp({ quality: 80 })
-      .toBuffer();
+    const isPdf =
+      uploadedFile.mimetype === 'application/pdf' ||
+      uploadedFile.originalname?.toLowerCase().endsWith('.pdf');
 
-    // Create PaymentProof document (expiresAt is intentionally undefined for pending)
+    let mimeType = isPdf ? 'application/pdf' : 'image/webp';
+    let fileBuffer = uploadedFile.buffer;
+    let ext = isPdf ? 'pdf' : 'webp';
+
+    if (!isPdf) {
+      try {
+        fileBuffer = await sharp(uploadedFile.buffer)
+          .resize({ width: 1400, withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toBuffer();
+        mimeType = 'image/webp';
+        ext = 'webp';
+      } catch {
+        fileBuffer = uploadedFile.buffer;
+        mimeType = uploadedFile.mimetype || 'image/jpeg';
+        ext = uploadedFile.mimetype?.includes('png') ? 'png' : 'jpg';
+      }
+    }
+
+    // Save proof file to disk in UPLOAD_DIR for reliable persistent serving
+    if (!fs.existsSync(UPLOAD_DIR)) {
+      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    }
+    const diskFilename = `proof_${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${ext}`;
+    const destPath = path.join(UPLOAD_DIR, diskFilename);
+    fs.writeFileSync(destPath, fileBuffer);
+    const proofUrl = `/uploads/${diskFilename}`;
+
+    // Create PaymentProof document
     const proof = await PaymentProof.create({
-      mimeType: 'image/webp',
-      size: compressed.length,
-      data: compressed,
+      mimeType,
+      size: fileBuffer.length,
+      data: fileBuffer,
     });
 
     // Extract optional userId if token is present
@@ -619,6 +672,7 @@ router.post(
     }
 
     const referenceId = await generateReferenceId();
+    const sevaPurpose = data.purpose || data.type || 'General Seva';
 
     const donation = await Donation.create({
       referenceId,
@@ -626,11 +680,14 @@ router.post(
       donorPhone: data.donorPhone,
       donorEmail: data.donorEmail || '',
       amount: data.amount,
-      type: data.type || 'General Seva',
+      type: sevaPurpose,
+      purpose: sevaPurpose,
       transactionId: data.transactionId,
       screenshotId: proof._id,
+      proofUrl,
       status: 'pending',
       userId,
+      user: userId,
     });
 
     // Optionally email admin via nodemailer
@@ -846,8 +903,10 @@ router.get(
       const proof = d.screenshotId ? proofMap.get(d.screenshotId.toString()) : null;
       return {
         ...d,
-        hasScreenshot: !!proof,
+        hasScreenshot: !!proof || !!d.proofUrl,
         screenshotExpiresAt: proof?.expiresAt || null,
+        proofUrl: d.proofUrl || (proof ? `/api/donations/${d._id}/screenshot` : null),
+        mimeType: proof?.mimeType || (d.proofUrl?.endsWith('.pdf') ? 'application/pdf' : 'image/webp'),
       };
     });
 
@@ -866,26 +925,40 @@ router.get(
 );
 
 /**
- * Admin: Stream payment screenshot image
+ * Admin: Stream payment screenshot image or PDF document
  */
 router.get(
   '/donations/:id/screenshot',
   requireAdmin,
   safe(async (req: any, res: any) => {
     const donation = await Donation.findById(req.params.id);
-    if (!donation || !donation.screenshotId) {
-      return res.status(404).json({ message: 'Screenshot deleted' });
+    if (!donation) {
+      return res.status(404).json({ message: 'Donation not found' });
     }
 
-    const proof = await PaymentProof.findById(donation.screenshotId).select('+data');
-    if (!proof || !proof.data) {
-      return res.status(404).json({ message: 'Screenshot deleted' });
+    if (donation.screenshotId) {
+      const proof = await PaymentProof.findById(donation.screenshotId).select('+data');
+      if (proof && proof.data) {
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', proof.mimeType || 'image/webp');
+        res.setHeader('Content-Length', proof.size);
+        return res.end(proof.data);
+      }
     }
 
-    res.setHeader('Cache-Control', 'private, no-store');
-    res.setHeader('Content-Type', proof.mimeType || 'image/webp');
-    res.setHeader('Content-Length', proof.size);
-    res.end(proof.data);
+    // Fallback: If proof file exists on disk in UPLOAD_DIR
+    if (donation.proofUrl) {
+      const filename = path.basename(donation.proofUrl);
+      const filePath = path.join(UPLOAD_DIR, filename);
+      if (fs.existsSync(filePath)) {
+        const isPdf = filename.endsWith('.pdf');
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('Content-Type', isPdf ? 'application/pdf' : 'image/webp');
+        return fs.createReadStream(filePath).pipe(res);
+      }
+    }
+
+    return res.status(404).json({ message: 'Screenshot deleted or not found' });
   })
 );
 
@@ -998,12 +1071,28 @@ router.post(
     const data = z
       .object({
         name: z.string().trim().min(2).max(100),
-        contact: z.string().trim().min(4).max(150),
-        message: z.string().trim().min(5).max(3000),
+        phone: z.string().trim().optional(),
+        email: z.string().trim().optional(),
+        contact: z.string().trim().optional(),
+        subject: z.string().trim().optional(),
+        message: z.string().trim().min(2).max(3000),
       })
       .parse(req.body);
 
-    await Inquiry.create(data);
+    const phone = data.phone || '';
+    const email = data.email || '';
+    const contact = data.contact || [phone, email].filter(Boolean).join(' | ') || 'Not provided';
+    const subject = data.subject || 'General Inquiry';
+
+    const item = await Inquiry.create({
+      name: data.name,
+      phone,
+      email,
+      contact,
+      subject,
+      message: data.message,
+      status: 'new',
+    });
 
     try {
       if (process.env.SMTP_USER && process.env.SMTP_PASS) {
@@ -1018,7 +1107,7 @@ router.post(
         await transporter.sendMail({
           from: `"ISKCON Kopargaon Website" <${process.env.SMTP_USER || 'iskconkopargaon@gmail.com'}>`,
           to: process.env.ADMIN_EMAIL || 'iskconkopargaon@gmail.com',
-          subject: `🙏 New Inquiry from ${data.name} — ISKCON Kopargaon Website`,
+          subject: `🙏 New Inquiry: ${subject} (${data.name}) — ISKCON Kopargaon`,
           html: `
             <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; background: #fdf8ee; padding: 32px; border-radius: 8px; border: 2px solid #d4af37;">
               <h2 style="color: #b7791f; font-size: 22px; margin-bottom: 4px;">🙏 Hare Krishna — New Temple Inquiry</h2>
@@ -1030,8 +1119,16 @@ router.post(
                   <td style="padding: 10px 16px;">${data.name}</td>
                 </tr>
                 <tr>
-                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Contact</td>
-                  <td style="padding: 10px 16px;">${data.contact}</td>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Phone</td>
+                  <td style="padding: 10px 16px;">${phone || 'Not provided'}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Email</td>
+                  <td style="padding: 10px 16px;">${email || 'Not provided'}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Subject</td>
+                  <td style="padding: 10px 16px;">${subject}</td>
                 </tr>
               </table>
 
@@ -1041,7 +1138,7 @@ router.post(
               </div>
 
               <p style="color: #78716c; font-size: 12px; text-align: center; border-top: 1px solid #e7d5a0; padding-top: 12px;">
-                Please reply to this devotee at their contact: ${data.contact}<br/>
+                Please reply to this devotee at ${phone || email || contact}<br/>
                 ISKCON Kopargaon — Samskar Value Education Centre, Kopargaon, Maharashtra 423603<br/>
                 📞 +91 90828 60210
               </p>
@@ -1053,16 +1150,44 @@ router.post(
       console.error('📧 Email notification failed (inquiry still saved):', emailErr.message);
     }
 
-    res.status(201).json({ message: 'Hare Krishna. Inquiry received successfully.' });
+    res.status(201).json({ message: 'Hare Krishna. Inquiry received successfully.', data: item });
   })
 );
 
 router.get(
   '/inquiries',
   requireAdmin,
-  safe(async (_req: any, res: any) => {
-    const data = await Inquiry.find().sort({ createdAt: -1 });
+  safe(async (req: any, res: any) => {
+    const filter: any = {};
+    if (req.query.status && req.query.status !== 'all') {
+      filter.status = req.query.status;
+    }
+    const data = await Inquiry.find(filter).sort({ createdAt: -1 });
     res.json({ data });
+  })
+);
+
+router.patch(
+  '/inquiries/:id',
+  requireAdmin,
+  safe(async (req: any, res: any) => {
+    const { status } = req.body;
+    const item = await Inquiry.findByIdAndUpdate(
+      req.params.id,
+      { status: status || 'resolved' },
+      { new: true }
+    );
+    if (!item) return res.status(404).json({ message: 'Inquiry not found' });
+    res.json({ data: item });
+  })
+);
+
+router.delete(
+  '/inquiries/:id',
+  requireAdmin,
+  safe(async (req: any, res: any) => {
+    await Inquiry.findByIdAndDelete(req.params.id);
+    res.status(204).end();
   })
 );
 

@@ -64,6 +64,7 @@ export const Event = model(
       description: { type: String, required: true },
       imageUrl: String,
       published: { type: Boolean, default: true },
+      status: { type: String, enum: ['approved', 'hidden', 'pending'], default: 'approved' },
     },
     opts
   )
@@ -144,7 +145,10 @@ export const Inquiry = model(
   new Schema(
     {
       name: { type: String, required: true },
-      contact: { type: String, required: true },
+      phone: { type: String, trim: true },
+      email: { type: String, trim: true, lowercase: true },
+      contact: { type: String },
+      subject: { type: String, default: 'General Inquiry', trim: true },
       message: { type: String, required: true },
       status: { type: String, enum: ['new', 'read', 'resolved'], default: 'new' },
     },
@@ -177,8 +181,10 @@ export const Donation = model(
       donorEmail: { type: String, trim: true, lowercase: true },
       amount: { type: Number, required: true },
       type: { type: String, default: 'General Seva' },
+      purpose: { type: String },
       transactionId: { type: String, required: true, unique: true, trim: true },
       screenshotId: { type: Schema.Types.ObjectId, ref: 'PaymentProof' },
+      proofUrl: { type: String },
       status: {
         type: String,
         enum: ['pending', 'verified', 'rejected'],
@@ -189,6 +195,7 @@ export const Donation = model(
       verifiedAt: { type: Date },
       verifiedBy: { type: Schema.Types.ObjectId, ref: 'Admin' },
       userId: { type: Schema.Types.ObjectId, ref: 'User' },
+      user: { type: Schema.Types.ObjectId, ref: 'User' },
       screenshotDeletedAt: { type: Date },
       screenshotDeletedBy: { type: String, enum: ['auto', 'admin'] },
       paymentId: String,

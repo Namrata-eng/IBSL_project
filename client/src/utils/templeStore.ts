@@ -10,6 +10,7 @@ export interface TempleEvent {
   description: string;
   imageUrl?: string;
   published?: boolean;
+  status?: string;
 }
 
 export interface GalleryPhoto {
@@ -141,13 +142,16 @@ try {
   }
 } catch {}
 
-export async function fetchEvents(): Promise<TempleEvent[]> {
+export async function fetchEvents(all: boolean = false): Promise<TempleEvent[]> {
   try {
-    const res = await fetch('/api/events');
+    const url = all ? '/api/events?all=true' : '/api/events';
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.data) && data.data.length > 0) {
-        localStorage.setItem(EVENTS_KEY, JSON.stringify(data.data));
+        if (!all) {
+          localStorage.setItem(EVENTS_KEY, JSON.stringify(data.data));
+        }
         return data.data;
       }
     }
@@ -169,60 +173,72 @@ export async function fetchEvents(): Promise<TempleEvent[]> {
 
 export async function saveEvent(eventData: Omit<TempleEvent, '_id'> & { _id?: string }): Promise<TempleEvent> {
   const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
-  let newEvent: TempleEvent;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  if (eventData._id) {
-    newEvent = { ...eventData, _id: eventData._id };
+  let savedItem: TempleEvent | null = null;
+  const isExistingInDb = eventData._id && !eventData._id.startsWith('evt_');
+
+  if (isExistingInDb) {
     try {
-      if (token) {
-        await fetch(`/api/events/${eventData._id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify(newEvent),
-        });
+      const res = await fetch(`/api/events/${eventData._id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(eventData),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) savedItem = json.data;
       }
     } catch {}
   } else {
-    newEvent = {
-      ...eventData,
-      _id: 'evt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-      published: true,
-    };
     try {
-      if (token) {
-        await fetch('/api/events', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify(newEvent),
-        });
+      const payload: any = { ...eventData };
+      if (payload._id?.startsWith('evt_')) delete payload._id;
+      if (payload.published === undefined) payload.published = true;
+      const res = await fetch('/api/events', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) savedItem = json.data;
       }
     } catch {}
   }
 
+  const finalEvent: TempleEvent = savedItem || {
+    ...eventData,
+    _id: eventData._id || 'evt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+    published: eventData.published !== false,
+  };
+
   const current = await fetchEvents();
-  const index = current.findIndex(e => e._id === newEvent._id);
+  const index = current.findIndex(e => e._id === finalEvent._id || (eventData._id && e._id === eventData._id));
   let updated: TempleEvent[];
   if (index >= 0) {
     updated = [...current];
-    updated[index] = newEvent;
+    updated[index] = finalEvent;
   } else {
-    updated = [newEvent, ...current];
+    updated = [finalEvent, ...current];
   }
   localStorage.setItem(EVENTS_KEY, JSON.stringify(updated));
 
   window.dispatchEvent(new CustomEvent('temple_events_updated', { detail: updated }));
-  return newEvent;
+  return finalEvent;
 }
 
 export async function deleteEvent(id: string): Promise<boolean> {
   const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   try {
-    if (token) {
-      await fetch(`/api/events/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    }
+    await fetch(`/api/events/${id}`, {
+      method: 'DELETE',
+      headers,
+    });
   } catch {}
 
   const current = await fetchEvents();

@@ -21,8 +21,11 @@ npm run build
 echo "⚡ Performing zero-downtime PM2 reload..."
 pm2 reload iskcon-api
 
-echo "🌐 Reloading Nginx configuration..."
-sudo nginx -t && sudo systemctl reload nginx
+echo "🌐 Updating and reloading Nginx configuration (client_max_body_size 10M)..."
+if [ -d /etc/nginx/sites-available ]; then
+  sudo cp "${APP_DIR}/deploy/nginx-iskcon.conf" /etc/nginx/sites-available/iskcon-kopargaon
+  sudo nginx -t && sudo systemctl reload nginx
+fi
 
 echo "✅ Application successfully updated and running!"
 
