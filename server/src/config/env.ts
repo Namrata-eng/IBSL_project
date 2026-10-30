@@ -20,3 +20,5 @@ export const SCREENSHOT_RETENTION_REJECTED_DAYS =
 export const UPLOAD_DIR = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
   : path.resolve(process.cwd(), 'uploads');
+
+export const JWT_SECRET = process.env.JWT_SECRET || 'iskcon_kopargaon_supreme_secret_108';

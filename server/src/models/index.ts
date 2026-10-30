@@ -211,7 +211,7 @@ export const connectDb = () =>
     })
     .then(() => console.log('MongoDB connected successfully.'))
     .catch(err => {
-      console.warn('MongoDB connection notice:', err.message);
+      console.error('MongoDB connection error:', err);
     });
 
 export async function seedDefaultAdmin() {

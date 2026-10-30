@@ -46,6 +46,14 @@ app.get('/api/health', (_req, res) => {
   res.status(connected ? 200 : 503).json({ status: connected ? 'ok' : 'unavailable', database: connected });
 });
 
+app.use('/api', (req, res, next) => {
+  if (req.path === '/health') return next();
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: 'Service temporarily unavailable. Please try again.' });
+  }
+  next();
+});
+
 app.use('/api', api);
 
 app.use((err: any, _req: any, res: any, _next: any) => {

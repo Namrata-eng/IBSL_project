@@ -29,6 +29,7 @@ import {
   SCREENSHOT_RETENTION_VERIFIED_DAYS,
   SCREENSHOT_RETENTION_REJECTED_DAYS,
   UPLOAD_DIR,
+  JWT_SECRET,
 } from '../config/env.js';
 
 const router = Router();
@@ -42,8 +43,6 @@ const models: any = {
 
 const safe = (fn: any) => (req: any, res: any, next: any) =>
   Promise.resolve(fn(req, res, next)).catch(next);
-
-const JWT_SECRET = process.env.JWT_SECRET || 'iskcon_kopargaon_supreme_secret_108';
 
 // Multer memory storage configuration for Donations (Max 5 MB, JPEG / PNG / WebP / PDF)
 const upload = multer({
@@ -801,12 +800,16 @@ router.post(
         },
       });
     } catch (err: any) {
-      console.error('❌ Error processing donation submission:', err);
+      console.error('Error processing donation submission in POST /api/donations:', err?.stack || err);
       if (err?.name === 'ZodError') {
-        const errorDetails = err.errors?.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ') || err.message;
-        return res.status(400).json({ message: `Validation Error: ${errorDetails}`, errors: err.errors });
+        const errorDetails = err.errors?.map((e: any) => e.message).join(', ') || err.message;
+        return res.status(400).json({ message: errorDetails, errors: err.errors });
       }
-      return res.status(500).json({ message: err.message || 'Failed to submit donation.' });
+      if (err?.name === 'ValidationError') {
+        const errorDetails = Object.values(err.errors || {}).map((e: any) => e.message).join(', ') || err.message;
+        return res.status(400).json({ message: errorDetails });
+      }
+      return res.status(500).json({ message: 'Unable to process payment proof. Please try again later.' });
     }
   })
 );
