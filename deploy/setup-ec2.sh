@@ -61,7 +61,7 @@ else
   chown -R www-data:www-data "${UPLOAD_DIR}"
 fi
 
-chmod -R 775 "${UPLOAD_DIR}"
+chmod -R 777 "${UPLOAD_DIR}"
 chmod -R 755 "${LOG_DIR}"
 
 # 6. Configure UFW Firewall

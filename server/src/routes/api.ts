@@ -73,10 +73,10 @@ const galleryUpload = multer({
   },
 });
 
-// Rate limiter for public donation submissions & tracking (10 reqs per 15 min per IP)
+// Rate limiter for public donation submissions & tracking (60 reqs per 15 min per IP)
 const donationLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 60,
   message: { message: 'Too many donation requests from this IP. Please try again after 15 minutes.' },
 });
 
@@ -580,179 +580,234 @@ router.post(
   (req: any, res: any, next: any) => {
     upload.any()(req, res, (err: any) => {
       if (err instanceof multer.MulterError) {
+        console.error('❌ Multer error during donation upload:', err);
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({ message: 'Proof file size exceeds 5 MB limit.' });
         }
-        return res.status(400).json({ message: err.message });
+        return res.status(400).json({ message: err.message || 'File upload error.' });
       } else if (err) {
-        return res.status(400).json({ message: err.message });
+        console.error('❌ Upload filter error:', err);
+        return res.status(400).json({ message: err.message || 'Invalid proof file format.' });
       }
       next();
     });
   },
   safe(async (req: any, res: any) => {
-    // Look for proof file under any common field name
-    const uploadedFile =
-      req.file ||
-      req.files?.find((f: any) => ['screenshot', 'proof', 'paymentProof', 'file'].includes(f.fieldname)) ||
-      req.files?.[0];
-
-    if (!uploadedFile) {
-      return res.status(400).json({ message: 'Payment screenshot or PDF receipt proof is required.' });
-    }
-
-    const donationSchema = z.object({
-      donorName: z.string().trim().min(2, 'Name must be at least 2 characters').max(80, 'Name cannot exceed 80 characters'),
-      donorPhone: z.string().trim().regex(/^[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian mobile number'),
-      donorEmail: z.string().trim().email('Invalid email address').optional().or(z.literal('')),
-      amount: z.coerce.number().int().min(1, 'Amount must be at least ₹1').max(500000, 'Amount cannot exceed ₹5,00,000'),
-      transactionId: z.string().trim().min(6, 'Transaction ID must be at least 6 characters').max(30, 'Transaction ID cannot exceed 30 characters').regex(/^[a-zA-Z0-9]+$/, 'Transaction ID must be alphanumeric'),
-      type: z.string().trim().optional(),
-      purpose: z.string().trim().optional(),
-    });
-
-    const data = donationSchema.parse(req.body);
-
-    // Reject duplicate transactionId with a clear message
-    const existing = await Donation.findOne({ transactionId: data.transactionId });
-    if (existing) {
-      return res.status(409).json({
-        message: 'A donation with this Transaction ID has already been submitted. Please check your transaction details.',
-      });
-    }
-
-    const isPdf =
-      uploadedFile.mimetype === 'application/pdf' ||
-      uploadedFile.originalname?.toLowerCase().endsWith('.pdf');
-
-    let mimeType = isPdf ? 'application/pdf' : 'image/webp';
-    let fileBuffer = uploadedFile.buffer;
-    let ext = isPdf ? 'pdf' : 'webp';
-
-    if (!isPdf) {
-      try {
-        fileBuffer = await sharp(uploadedFile.buffer)
-          .resize({ width: 1400, withoutEnlargement: true })
-          .webp({ quality: 80 })
-          .toBuffer();
-        mimeType = 'image/webp';
-        ext = 'webp';
-      } catch {
-        fileBuffer = uploadedFile.buffer;
-        mimeType = uploadedFile.mimetype || 'image/jpeg';
-        ext = uploadedFile.mimetype?.includes('png') ? 'png' : 'jpg';
-      }
-    }
-
-    // Save proof file to disk in UPLOAD_DIR for reliable persistent serving
-    if (!fs.existsSync(UPLOAD_DIR)) {
-      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-    }
-    const diskFilename = `proof_${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${ext}`;
-    const destPath = path.join(UPLOAD_DIR, diskFilename);
-    fs.writeFileSync(destPath, fileBuffer);
-    const proofUrl = `/uploads/${diskFilename}`;
-
-    // Create PaymentProof document
-    const proof = await PaymentProof.create({
-      mimeType,
-      size: fileBuffer.length,
-      data: fileBuffer,
-    });
-
-    // Extract optional userId if token is present
-    let userId: any = undefined;
-    const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const decoded: any = jwt.verify(token, JWT_SECRET);
-        if (decoded?.id) userId = decoded.id;
-      } catch {}
-    }
-
-    const referenceId = await generateReferenceId();
-    const sevaPurpose = data.purpose || data.type || 'General Seva';
-
-    const donation = await Donation.create({
-      referenceId,
-      donorName: data.donorName,
-      donorPhone: data.donorPhone,
-      donorEmail: data.donorEmail || '',
-      amount: data.amount,
-      type: sevaPurpose,
-      purpose: sevaPurpose,
-      transactionId: data.transactionId,
-      screenshotId: proof._id,
-      proofUrl,
-      status: 'pending',
-      userId,
-      user: userId,
-    });
-
-    // Optionally email admin via nodemailer
     try {
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        });
+      console.log('📥 POST /api/donations payload received:', {
+        donorName: req.body?.donorName,
+        donorPhone: req.body?.donorPhone,
+        amount: req.body?.amount,
+        transactionId: req.body?.transactionId,
+        type: req.body?.type,
+        filesCount: req.files?.length,
+      });
 
-        await transporter.sendMail({
-          from: `"ISKCON Kopargaon Website" <${process.env.SMTP_USER}>`,
-          to: process.env.ADMIN_EMAIL || process.env.SMTP_USER,
-          subject: `🙏 New Donation Submitted (${donation.referenceId}) — ₹${donation.amount}`,
-          html: `
-            <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; background: #fdf8ee; padding: 32px; border-radius: 8px; border: 2px solid #d4af37;">
-              <h2 style="color: #b7791f; font-size: 22px; margin-bottom: 4px;">🙏 Hare Krishna — New Donation Awaiting Verification</h2>
-              <p style="color: #78716c; font-size: 13px; margin-bottom: 24px;">Received from ISKCON Kopargaon Website Donation Form</p>
-              
-              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                <tr>
-                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e; width: 140px;">Reference ID</td>
-                  <td style="padding: 10px 16px;"><strong>${donation.referenceId}</strong></td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Donor Name</td>
-                  <td style="padding: 10px 16px;">${donation.donorName}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Phone</td>
-                  <td style="padding: 10px 16px;">${donation.donorPhone}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Amount</td>
-                  <td style="padding: 10px 16px; font-size: 18px; color: #b7791f; font-weight: bold;">₹${donation.amount.toLocaleString('en-IN')}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Seva Type</td>
-                  <td style="padding: 10px 16px;">${donation.type}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Transaction ID</td>
-                  <td style="padding: 10px 16px;"><code>${donation.transactionId}</code></td>
-                </tr>
-              </table>
+      // Look for proof file under any common field name
+      const uploadedFile =
+        req.file ||
+        req.files?.find((f: any) => ['screenshot', 'proof', 'paymentProof', 'file'].includes(f.fieldname)) ||
+        req.files?.[0];
 
-              <p style="color: #78716c; font-size: 12px; text-align: center; border-top: 1px solid #e7d5a0; padding-top: 12px;">
-                Please log in to the ISKCON Kopargaon Admin Dashboard to review payment proof and verify.
-              </p>
-            </div>
-          `,
+      if (!uploadedFile) {
+        return res.status(400).json({ message: 'Payment screenshot or PDF receipt proof is required.' });
+      }
+
+      // Pre-sanitize phone to 10 digits
+      if (req.body.donorPhone) {
+        const digits = String(req.body.donorPhone).replace(/\D/g, '');
+        req.body.donorPhone = digits.slice(-10);
+      }
+
+      const donationSchema = z.object({
+        donorName: z.string().trim().min(2, 'Name must be at least 2 characters').max(80, 'Name cannot exceed 80 characters'),
+        donorPhone: z.string().trim().regex(/^[6-9]\d{9}$/, 'Please enter a valid 10-digit Indian mobile number (e.g. 9876543210)'),
+        donorEmail: z.string().trim().email('Invalid email address').optional().or(z.literal('')),
+        amount: z.coerce.number().int().min(1, 'Amount must be at least ₹1').max(500000, 'Amount cannot exceed ₹5,00,000'),
+        transactionId: z.string().trim().min(6, 'Transaction ID must be at least 6 characters').max(30, 'Transaction ID cannot exceed 30 characters').regex(/^[a-zA-Z0-9]+$/, 'Transaction ID must be alphanumeric'),
+        type: z.string().trim().optional(),
+        purpose: z.string().trim().optional(),
+      });
+
+      const data = donationSchema.parse(req.body);
+
+      // Reject duplicate transactionId with a clear message
+      const existing = await Donation.findOne({ transactionId: data.transactionId });
+      if (existing) {
+        console.warn('⚠️ Duplicate transactionId rejected:', data.transactionId);
+        return res.status(409).json({
+          message: 'A donation with this Transaction ID has already been submitted. Please check your transaction details.',
         });
       }
-    } catch (mailErr: any) {
-      console.warn('📧 Donation notification email notice:', mailErr.message);
-    }
 
-    res.status(201).json({
-      referenceId: donation.referenceId,
-      status: donation.status,
-      message: 'Hare Krishna! Your donation has been received and is pending verification within 24 hours.',
-    });
+      const isPdf =
+        uploadedFile.mimetype === 'application/pdf' ||
+        uploadedFile.originalname?.toLowerCase().endsWith('.pdf');
+
+      let mimeType = isPdf ? 'application/pdf' : 'image/webp';
+      let fileBuffer = uploadedFile.buffer;
+      let ext = isPdf ? 'pdf' : 'webp';
+
+      if (!isPdf) {
+        try {
+          fileBuffer = await sharp(uploadedFile.buffer)
+            .resize({ width: 1400, withoutEnlargement: true })
+            .webp({ quality: 80 })
+            .toBuffer();
+          mimeType = 'image/webp';
+          ext = 'webp';
+        } catch {
+          fileBuffer = uploadedFile.buffer;
+          mimeType = uploadedFile.mimetype || 'image/jpeg';
+          ext = uploadedFile.mimetype?.includes('png') ? 'png' : 'jpg';
+        }
+      }
+
+      // Save proof file to disk in UPLOAD_DIR for reliable persistent serving
+      const diskFilename = `proof_${Date.now()}_${crypto.randomUUID().slice(0, 8)}.${ext}`;
+      let proofUrl = `/uploads/${diskFilename}`;
+      try {
+        if (!fs.existsSync(UPLOAD_DIR)) {
+          fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+        }
+        const destPath = path.join(UPLOAD_DIR, diskFilename);
+        fs.writeFileSync(destPath, fileBuffer);
+      } catch (diskErr: any) {
+        console.warn('⚠️ Warning writing to UPLOAD_DIR, attempting local ./uploads fallback:', diskErr.message);
+        try {
+          const localDir = path.resolve(process.cwd(), 'uploads');
+          if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+          fs.writeFileSync(path.join(localDir, diskFilename), fileBuffer);
+        } catch (localErr: any) {
+          console.error('⚠️ Could not write to disk, using DB streaming URL:', localErr.message);
+        }
+      }
+
+      // Create PaymentProof document
+      const proof = await PaymentProof.create({
+        mimeType,
+        size: fileBuffer.length,
+        data: fileBuffer,
+      });
+
+      // Extract optional userId if token is present
+      let userId: any = undefined;
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.split(' ')[1];
+          const decoded: any = jwt.verify(token, JWT_SECRET);
+          if (decoded?.id && mongoose.isValidObjectId(decoded.id)) userId = decoded.id;
+        } catch {}
+      }
+
+      const referenceId = await generateReferenceId();
+      const sevaPurpose = data.purpose || data.type || 'General Seva';
+
+      const donation = await Donation.create({
+        referenceId,
+        donorName: data.donorName,
+        donorPhone: data.donorPhone,
+        donorEmail: data.donorEmail || '',
+        amount: data.amount,
+        type: sevaPurpose,
+        purpose: sevaPurpose,
+        transactionId: data.transactionId,
+        screenshotId: proof._id,
+        proofUrl,
+        status: 'pending',
+        userId,
+        user: userId,
+      });
+
+      console.log('✅ Donation recorded successfully in MongoDB:', {
+        id: donation._id,
+        referenceId: donation.referenceId,
+        amount: donation.amount,
+        proofUrl: donation.proofUrl,
+      });
+
+      // Optionally email admin via nodemailer
+      try {
+        if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+          const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+              user: process.env.SMTP_USER,
+              pass: process.env.SMTP_PASS,
+            },
+          });
+
+          await transporter.sendMail({
+            from: `"ISKCON Kopargaon Website" <${process.env.SMTP_USER}>`,
+            to: process.env.ADMIN_EMAIL || process.env.SMTP_USER,
+            subject: `🙏 New Donation Submitted (${donation.referenceId}) — ₹${donation.amount}`,
+            html: `
+              <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; background: #fdf8ee; padding: 32px; border-radius: 8px; border: 2px solid #d4af37;">
+                <h2 style="color: #b7791f; font-size: 22px; margin-bottom: 4px;">🙏 Hare Krishna — New Donation Awaiting Verification</h2>
+                <p style="color: #78716c; font-size: 13px; margin-bottom: 24px;">Received from ISKCON Kopargaon Website Donation Form</p>
+                
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                  <tr>
+                    <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e; width: 140px;">Reference ID</td>
+                    <td style="padding: 10px 16px;"><strong>${donation.referenceId}</strong></td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Donor Name</td>
+                    <td style="padding: 10px 16px;">${donation.donorName}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Phone</td>
+                    <td style="padding: 10px 16px;">${donation.donorPhone}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Amount</td>
+                    <td style="padding: 10px 16px; font-size: 18px; color: #b7791f; font-weight: bold;">₹${donation.amount.toLocaleString('en-IN')}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Seva Type</td>
+                    <td style="padding: 10px 16px;">${donation.type}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 16px; background: #fef3c7; border-radius: 6px; font-weight: bold; color: #92400e;">Transaction ID</td>
+                    <td style="padding: 10px 16px;"><code>${donation.transactionId}</code></td>
+                  </tr>
+                </table>
+
+                <p style="color: #78716c; font-size: 12px; text-align: center; border-top: 1px solid #e7d5a0; padding-top: 12px;">
+                  Please log in to the ISKCON Kopargaon Admin Dashboard to review payment proof and verify.
+                </p>
+              </div>
+            `,
+          });
+        }
+      } catch (mailErr: any) {
+        console.warn('📧 Donation notification email notice:', mailErr.message);
+      }
+
+      return res.status(201).json({
+        success: true,
+        referenceId: donation.referenceId,
+        status: donation.status,
+        proofUrl: donation.proofUrl,
+        message: 'Hare Krishna! Your donation has been received and is pending verification within 24 hours.',
+        donation: {
+          referenceId: donation.referenceId,
+          donorName: donation.donorName,
+          amount: donation.amount,
+          type: donation.type,
+          transactionId: donation.transactionId,
+          proofUrl: donation.proofUrl,
+        },
+      });
+    } catch (err: any) {
+      console.error('❌ Error processing donation submission:', err);
+      if (err?.name === 'ZodError') {
+        const errorDetails = err.errors?.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ') || err.message;
+        return res.status(400).json({ message: `Validation Error: ${errorDetails}`, errors: err.errors });
+      }
+      return res.status(500).json({ message: err.message || 'Failed to submit donation.' });
+    }
   })
 );
 
@@ -1065,19 +1120,33 @@ router.patch(
    INQUIRIES, SEARCH & CHATBOT ROUTES
    ========================================================================== */
 
-router.post(
-  '/inquiries',
-  safe(async (req: any, res: any) => {
-    const data = z
-      .object({
-        name: z.string().trim().min(2).max(100),
-        phone: z.string().trim().optional(),
-        email: z.string().trim().optional(),
-        contact: z.string().trim().optional(),
-        subject: z.string().trim().optional(),
-        message: z.string().trim().min(2).max(3000),
-      })
-      .parse(req.body);
+const handleInquiryCreate = async (req: any, res: any) => {
+  try {
+    console.log('📥 Inquiry payload received:', {
+      name: req.body?.name,
+      phone: req.body?.phone,
+      email: req.body?.email,
+      subject: req.body?.subject,
+    });
+
+    // Normalize phone and email
+    if (req.body?.phone) {
+      req.body.phone = String(req.body.phone).replace(/[^\d+]/g, '').trim();
+    }
+    if (req.body?.email && !String(req.body.email).trim()) {
+      delete req.body.email;
+    }
+
+    const inquirySchema = z.object({
+      name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100, 'Name cannot exceed 100 characters'),
+      phone: z.string().trim().optional().or(z.literal('')),
+      email: z.string().trim().email('Invalid email address').optional().or(z.literal('')),
+      contact: z.string().trim().optional().or(z.literal('')),
+      subject: z.string().trim().optional().or(z.literal('')),
+      message: z.string().trim().min(2, 'Message must be at least 2 characters').max(3000, 'Message cannot exceed 3000 characters'),
+    });
+
+    const data = inquirySchema.parse(req.body);
 
     const phone = data.phone || '';
     const email = data.email || '';
@@ -1093,6 +1162,8 @@ router.post(
       message: data.message,
       status: 'new',
     });
+
+    console.log('✅ Inquiry saved successfully to MongoDB:', item._id);
 
     try {
       if (process.env.SMTP_USER && process.env.SMTP_PASS) {
@@ -1147,25 +1218,37 @@ router.post(
         });
       }
     } catch (emailErr: any) {
-      console.error('📧 Email notification failed (inquiry still saved):', emailErr.message);
+      console.warn('📧 Email notice (inquiry was saved):', emailErr.message);
     }
 
-    res.status(201).json({ message: 'Hare Krishna. Inquiry received successfully.', data: item });
-  })
-);
-
-router.get(
-  '/inquiries',
-  requireAdmin,
-  safe(async (req: any, res: any) => {
-    const filter: any = {};
-    if (req.query.status && req.query.status !== 'all') {
-      filter.status = req.query.status;
+    return res.status(201).json({
+      success: true,
+      message: 'Hare Krishna. Inquiry received successfully.',
+      data: item,
+    });
+  } catch (err: any) {
+    console.error('❌ Error saving inquiry:', err);
+    if (err?.name === 'ZodError') {
+      const errorDetails = err.errors?.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ') || err.message;
+      return res.status(400).json({ message: `Validation Error: ${errorDetails}`, errors: err.errors });
     }
-    const data = await Inquiry.find(filter).sort({ createdAt: -1 });
-    res.json({ data });
-  })
-);
+    return res.status(500).json({ message: err.message || 'Failed to submit inquiry' });
+  }
+};
+
+const handleInquiryList = async (req: any, res: any) => {
+  const filter: any = {};
+  if (req.query.status && req.query.status !== 'all') {
+    filter.status = req.query.status;
+  }
+  const data = await Inquiry.find(filter).sort({ createdAt: -1 });
+  res.json({ data });
+};
+
+router.post('/inquiries', safe(handleInquiryCreate));
+router.post('/queries', safe(handleInquiryCreate));
+router.get('/inquiries', requireAdmin, safe(handleInquiryList));
+router.get('/queries', requireAdmin, safe(handleInquiryList));
 
 router.patch(
   '/inquiries/:id',

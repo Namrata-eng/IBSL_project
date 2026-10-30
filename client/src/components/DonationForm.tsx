@@ -32,6 +32,8 @@ export function DonationForm({
     referenceId: string;
     status: string;
     message: string;
+    proofUrl?: string;
+    whatsappUrl?: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -106,7 +108,7 @@ export function DonationForm({
       return;
     }
 
-    const cleanPhone = donorPhone.trim();
+    const cleanPhone = donorPhone.replace(/\D/g, '').slice(-10);
     if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
       setError('Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).');
       return;
@@ -125,8 +127,17 @@ export function DonationForm({
     }
 
     if (!file) {
-      setError('Please attach your payment screenshot proof.');
+      setError('Please attach your payment screenshot or PDF proof.');
       return;
+    }
+
+    // On non-mobile desktop browsers, open a blank window synchronously on user click to avoid popup blocker
+    const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    let waWindow: Window | null = null;
+    if (!isMobile) {
+      try {
+        waWindow = window.open('about:blank', '_blank');
+      } catch {}
     }
 
     setLoading(true);
@@ -158,11 +169,44 @@ export function DonationForm({
       const data = await res.json();
 
       if (!res.ok) {
+        if (waWindow && !waWindow.closed) waWindow.close();
         throw new Error(data.message || 'Failed to submit donation verification request.');
       }
 
-      setSuccessData(data);
+      // Format complete proof URL (WhatsApp link text cannot attach files, so include full web URL)
+      const fullProofUrl = data.proofUrl
+        ? (data.proofUrl.startsWith('http') ? data.proofUrl : `${window.location.origin}${data.proofUrl}`)
+        : `${window.location.origin}/api/donations/${data.referenceId}`;
+
+      // Build pre-filled WhatsApp message with all details
+      const whatsappText =
+        `🙏 *Hare Krishna! ISKCON Kopargaon Payment Proof Submission*\n\n` +
+        `👤 *Donor Name:* ${donorName.trim()}\n` +
+        `📞 *Phone:* ${cleanPhone}\n` +
+        `✉️ *Email:* ${donorEmail.trim() || 'Not provided'}\n` +
+        `💰 *Amount:* ₹${parsedAmount.toLocaleString('en-IN')}\n` +
+        `🪔 *Seva Purpose:* ${type.trim() || 'General Seva'}\n` +
+        `🔢 *Transaction / UTR ID:* ${cleanTxn}\n` +
+        `🔖 *Reference ID:* ${data.referenceId}\n` +
+        `📄 *Payment Proof:* ${fullProofUrl}\n\n` +
+        `Please verify this offering. Hare Krishna!`;
+
+      const waUrl = `https://wa.me/919082860210?text=${encodeURIComponent(whatsappText)}`;
+
+      // Open WhatsApp after database confirms success
+      if (waWindow && !waWindow.closed) {
+        waWindow.location.href = waUrl;
+      } else {
+        window.location.href = waUrl;
+      }
+
+      setSuccessData({
+        ...data,
+        whatsappUrl: waUrl,
+      });
     } catch (err: any) {
+      if (waWindow && !waWindow.closed) waWindow.close();
+      console.error('Donation submission error:', err);
       setError(err.message || 'Something went wrong while submitting. Please check your connection.');
     } finally {
       setLoading(false);
@@ -299,6 +343,30 @@ export function DonationForm({
             </div>
 
             <div style={{ display: 'grid', gap: '12px' }}>
+              {successData.whatsappUrl && (
+                <a
+                  href={successData.whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn--pearl"
+                  style={{
+                    width: '100%',
+                    justifyContent: 'center',
+                    padding: '12px',
+                    background: '#22c55e',
+                    borderColor: '#22c55e',
+                    color: '#fff',
+                    fontWeight: 700,
+                    textDecoration: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span>💬 Open WhatsApp to Send Details (Click if not opened)</span>
+                </a>
+              )}
+
               <Link
                 to={`/track-donation?referenceId=${encodeURIComponent(successData.referenceId)}&phone=${encodeURIComponent(donorPhone)}`}
                 className="btn btn--gold"
