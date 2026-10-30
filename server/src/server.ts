@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import './config/env.js';
+import { UPLOAD_DIR } from './config/env.js';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -7,12 +10,29 @@ import mongoose from 'mongoose';
 import api from './routes/api.js';
 import { connectDb, seedDefaultAdmin } from './models/index.js';
 
+// Ensure the upload directory exists
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
 const app = express();
 app.set('trust proxy', 1);
 
-app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }));
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+const clientUrl = process.env.CLIENT_URL;
+app.use(cors({
+  origin: clientUrl ? clientUrl.split(',').map((u) => u.trim()) : 'http://localhost:5173',
+  credentials: true,
+}));
+
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }));
+
+// Serve uploaded media files with caching headers
+app.use('/uploads', express.static(UPLOAD_DIR, {
+  maxAge: '30d',
+  immutable: true,
+}));
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));

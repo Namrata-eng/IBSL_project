@@ -22,9 +22,13 @@ import {
   User,
 } from '../models/index.js';
 import { requireAdmin } from '../middleware/auth.js';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   SCREENSHOT_RETENTION_VERIFIED_DAYS,
   SCREENSHOT_RETENTION_REJECTED_DAYS,
+  UPLOAD_DIR,
 } from '../config/env.js';
 
 const router = Router();
@@ -123,6 +127,75 @@ router.get(
     res.setHeader('Content-Type', imageFile.mimeType || 'image/webp');
     res.setHeader('Content-Length', imageFile.size);
     res.end(imageFile.data);
+  })
+);
+
+/* ==========================================================================
+   ADMIN MEDIA UPLOAD ROUTE (Stored in UPLOAD_DIR on disk)
+   ========================================================================== */
+
+const generalUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error('Only JPEG, PNG, and WebP images are allowed.'));
+    }
+    cb(null, true);
+  },
+});
+
+router.post(
+  '/upload',
+  requireAdmin,
+  (req: any, res: any, next: any) => {
+    generalUpload.single('image')(req, res, (err: any) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ message: 'File is too large. Maximum allowed size is 5 MB.' });
+        }
+        return res.status(400).json({ message: err.message });
+      } else if (err) {
+        return res.status(400).json({ message: err.message });
+      }
+      next();
+    });
+  },
+  safe(async (req: any, res: any) => {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image file uploaded.' });
+    }
+
+    if (!fs.existsSync(UPLOAD_DIR)) {
+      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    }
+
+    const ext = req.file.mimetype === 'image/png' ? 'png' : req.file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+    const filename = `${crypto.randomUUID()}.${ext}`;
+    const destPath = path.join(UPLOAD_DIR, filename);
+
+    if (ext === 'webp') {
+      await sharp(req.file.buffer)
+        .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 82 })
+        .toFile(destPath);
+    } else if (ext === 'png') {
+      await sharp(req.file.buffer)
+        .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+        .png({ quality: 85, compressionLevel: 8 })
+        .toFile(destPath);
+    } else {
+      await sharp(req.file.buffer)
+        .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 82 })
+        .toFile(destPath);
+    }
+
+    return res.status(201).json({
+      url: `/uploads/${filename}`,
+      filename,
+    });
   })
 );
 
@@ -284,6 +357,17 @@ router.patch(
   })
 );
 
+router.put(
+  '/events/:id',
+  safe(async (req: any, res: any) => {
+    const item = await Event.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+    res.json({ data: item });
+  })
+);
+
 router.delete(
   '/events/:id',
   safe(async (req: any, res: any) => {
@@ -432,6 +516,17 @@ for (const key of ['services', 'prasadam', 'timings', 'announcements']) {
   );
 
   router.patch(
+    '/' + key + '/:id',
+    safe(async (req: any, res: any) => {
+      const item = await models[key].findByIdAndUpdate(req.params.id, req.body, {
+        new: true,
+        runValidators: true,
+      });
+      res.json({ data: item });
+    })
+  );
+
+  router.put(
     '/' + key + '/:id',
     safe(async (req: any, res: any) => {
       const item = await models[key].findByIdAndUpdate(req.params.id, req.body, {

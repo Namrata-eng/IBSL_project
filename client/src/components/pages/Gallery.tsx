@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import PageBanner from '../PageBanner';
 import { fetchGallery, saveGalleryPhoto, deleteGalleryPhoto, GalleryPhoto } from '../../utils/templeStore';
 import { XIcon, PeacockFeatherIcon, PlusIcon, TrashIcon } from '../icons';
+import { ImageUploader } from '../ImageUploader';
 
 export function Gallery() {
   const [images, setImages] = useState<GalleryPhoto[]>([]);
@@ -60,36 +61,21 @@ export function Gallery() {
     };
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setPhotoFile(file);
-      setPhotoPreview(URL.createObjectURL(file));
-      setPhotoUrl('');
-    }
-  };
-
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!photoTitle || (!photoFile && !photoUrl)) return;
+    if (!photoTitle || !photoUrl) return;
 
     const formData = new FormData();
     formData.append('title', photoTitle);
     formData.append('category', photoCategory);
     if (photoDesc) formData.append('description', photoDesc);
-    if (photoFile) {
-      formData.append('image', photoFile);
-    } else if (photoUrl) {
-      formData.append('imageUrl', photoUrl);
-    }
+    formData.append('imageUrl', photoUrl);
 
     await saveGalleryPhoto(formData);
 
     setUploadSuccess(`✨ "${photoTitle}" uploaded successfully to Darshan Gallery!`);
     setPhotoTitle('');
     setPhotoUrl('');
-    setPhotoFile(null);
-    setPhotoPreview('');
     setPhotoDesc('');
     const updated = await fetchGallery();
     setImages(updated);
@@ -228,32 +214,11 @@ export function Gallery() {
                 </select>
               </label>
 
-              <div>
-                <label style={{ marginBottom: '6px' }}>Choose Photo from Computer / Phone</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  style={{ padding: '8px', background: 'rgba(255,255,255,0.06)' }}
-                />
-              </div>
-
-              <label>
-                Or Paste Direct Image URL (HD Photo)
-                <input
-                  placeholder="https://images.unsplash.com/..."
-                  value={photoUrl}
-                  onChange={e => {
-                    setPhotoUrl(e.target.value);
-                    setPhotoPreview(e.target.value);
-                    setPhotoFile(null);
-                  }}
-                />
-              </label>
-
-              {(photoPreview || photoUrl) && (
-                <div style={{ height: '140px', borderRadius: '10px', backgroundImage: `url(${photoPreview || photoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', border: '1px solid var(--hairline-gold)' }} />
-              )}
+              <ImageUploader
+                value={photoUrl}
+                onChange={setPhotoUrl}
+                label="Darshan Gallery Photo"
+              />
 
               <label>
                 Description / Caption

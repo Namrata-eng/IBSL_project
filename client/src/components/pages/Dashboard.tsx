@@ -21,6 +21,7 @@ import {
   HeartIcon,
   XIcon,
 } from '../icons';
+import { ImageUploader } from '../ImageUploader';
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -36,6 +37,17 @@ export function Dashboard() {
   const [eventDesc, setEventDesc] = useState('');
   const [eventImage, setEventImage] = useState('');
   const [eventSuccess, setEventSuccess] = useState('');
+
+  // Edit Event State
+  const [editingEvent, setEditingEvent] = useState<TempleEvent | null>(null);
+  const [editEventName, setEditEventName] = useState('');
+  const [editEventDate, setEditEventDate] = useState('');
+  const [editEventTime, setEditEventTime] = useState('');
+  const [editEventLocation, setEditEventLocation] = useState('');
+  const [editEventCategory, setEditEventCategory] = useState('');
+  const [editEventDesc, setEditEventDesc] = useState('');
+  const [editEventImage, setEditEventImage] = useState('');
+  const [editEventSuccess, setEditEventSuccess] = useState('');
 
   // Gallery State
   const [gallery, setGallery] = useState<GalleryPhoto[]>([]);
@@ -297,28 +309,6 @@ export function Dashboard() {
     }
   };
 
-  const handlePhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setPhotoFile(file);
-      setPhotoPreview(URL.createObjectURL(file));
-      setPhotoUrl('');
-    }
-  };
-
-  const handleEventFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setEventImage(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleAddEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventName || !eventDate) return;
@@ -330,7 +320,7 @@ export function Dashboard() {
       location: eventLocation,
       category: eventCategory,
       description: eventDesc || 'Auspicious festival celebration at ISKCON Kopargaon.',
-      imageUrl: eventImage || 'https://images.unsplash.com/photo-1567591414240-e2518e97f0e7?auto=format&fit=crop&w=1200&q=85',
+      imageUrl: eventImage || '/images/default-event.jpg',
     });
 
     setEventSuccess(`🎉 Festival "${eventName}" published & notification activated!`);
@@ -345,6 +335,42 @@ export function Dashboard() {
     setTimeout(() => setEventSuccess(''), 4500);
   };
 
+  const handleStartEditEvent = (ev: TempleEvent) => {
+    setEditingEvent(ev);
+    setEditEventName(ev.name);
+    setEditEventDate(ev.date);
+    setEditEventTime(ev.time || '');
+    setEditEventLocation(ev.location || 'ISKCON Kopargaon Temple Sanctum');
+    setEditEventCategory(ev.category || 'Grand Annual Festival');
+    setEditEventDesc(ev.description || '');
+    setEditEventImage(ev.imageUrl || '/images/default-event.jpg');
+    setEditEventSuccess('');
+  };
+
+  const handleEditEventSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEvent || !editEventName || !editEventDate) return;
+
+    await saveEvent({
+      _id: editingEvent._id,
+      name: editEventName,
+      date: editEventDate,
+      time: editEventTime || '06:00 PM Onwards',
+      location: editEventLocation,
+      category: editEventCategory,
+      description: editEventDesc,
+      imageUrl: editEventImage || '/images/default-event.jpg',
+    });
+
+    setEditEventSuccess(`🎉 Festival "${editEventName}" updated successfully!`);
+    const updated = await fetchEvents();
+    setEvents(updated);
+    setTimeout(() => {
+      setEditEventSuccess('');
+      setEditingEvent(null);
+    }, 1200);
+  };
+
   const handleDeleteEvent = async (id: string, name: string) => {
     if (window.confirm(`Are you sure you want to remove the festival "${name}"?`)) {
       await deleteEvent(id);
@@ -355,8 +381,8 @@ export function Dashboard() {
 
   const handleAddPhoto = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!photoTitle || (!photoFile && !photoUrl)) {
-      alert('Please provide a photo title and choose an image file or provide an image URL.');
+    if (!photoTitle || !photoUrl) {
+      alert('Please provide a photo title and upload an image.');
       return;
     }
 
@@ -364,19 +390,13 @@ export function Dashboard() {
     formData.append('title', photoTitle);
     formData.append('category', photoCategory);
     if (photoDesc) formData.append('description', photoDesc);
-    if (photoFile) {
-      formData.append('image', photoFile);
-    } else if (photoUrl) {
-      formData.append('imageUrl', photoUrl);
-    }
+    formData.append('imageUrl', photoUrl);
 
     await saveGalleryPhoto(formData);
 
     setPhotoSuccess(`✨ Photo "${photoTitle}" uploaded to Darshan Gallery successfully!`);
     setPhotoTitle('');
     setPhotoUrl('');
-    setPhotoFile(null);
-    setPhotoPreview('');
     setPhotoDesc('');
 
     const updated = await fetchGallery();
@@ -1024,37 +1044,11 @@ export function Dashboard() {
                 </select>
               </label>
 
-              <div style={{ background: 'rgba(56, 189, 248, 0.08)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-                <label style={{ marginBottom: '6px', fontWeight: 600, color: '#38bdf8' }}>
-                  Option A: Choose Image File from Device
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handlePhotoFile}
-                  style={{ padding: '8px', background: 'rgba(0,0,0,0.4)', borderRadius: '8px' }}
-                />
-              </div>
-
-              <label>
-                Option B: Or Direct Image Web URL
-                <input
-                  placeholder="https://..."
-                  value={photoUrl}
-                  onChange={e => {
-                    setPhotoUrl(e.target.value);
-                    setPhotoPreview(e.target.value);
-                    setPhotoFile(null);
-                  }}
-                />
-              </label>
-
-              {(photoPreview || photoUrl) && (
-                <div>
-                  <span style={{ fontSize: '12px', color: 'var(--gold)', display: 'block', marginBottom: '4px' }}>Image Preview:</span>
-                  <div style={{ height: '160px', borderRadius: '10px', backgroundImage: `url(${photoPreview || photoUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', border: '1px solid var(--gold)' }} />
-                </div>
-              )}
+              <ImageUploader
+                value={photoUrl}
+                onChange={setPhotoUrl}
+                label="Darshan Gallery Photo"
+              />
 
               <label>
                 Photo Caption / Devotional Note
@@ -1168,17 +1162,11 @@ export function Dashboard() {
                 </select>
               </label>
 
-              <div style={{ background: 'rgba(212, 175, 55, 0.08)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(212, 175, 55, 0.3)' }}>
-                <label style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--gold)' }}>
-                  Upload Banner Photo from Device
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleEventFile}
-                  style={{ padding: '8px', background: 'rgba(0,0,0,0.4)', borderRadius: '8px' }}
-                />
-              </div>
+              <ImageUploader
+                value={eventImage}
+                onChange={setEventImage}
+                label="Festival Banner Image"
+              />
 
               <label>
                 Description & Schedule of Sevas
@@ -1219,14 +1207,112 @@ export function Dashboard() {
                       📅 {new Date(e.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} · 🕒 {e.time || 'All Day'}
                     </p>
                   </div>
-                  <button onClick={() => handleDeleteEvent(e._id, e.name)} className="btn btn--ink" style={{ padding: '8px 12px', color: '#f87171' }}>
-                    <TrashIcon size={16} />
-                    <span>Delete</span>
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={() => handleStartEditEvent(e)} className="btn btn--gold" style={{ padding: '8px 12px', fontSize: '13px' }}>
+                      <span>✏️</span>
+                      <span>Edit</span>
+                    </button>
+                    <button onClick={() => handleDeleteEvent(e._id, e.name)} className="btn btn--ink" style={{ padding: '8px 12px', color: '#f87171' }}>
+                      <TrashIcon size={16} />
+                      <span>Delete</span>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
+
+          {/* Edit Event Modal in Dashboard */}
+          {editingEvent && (
+            <div className="modal-backdrop" onClick={() => setEditingEvent(null)}>
+              <div className="modal" style={{ maxWidth: '580px' }} onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <CalendarIcon size={22} />
+                    <h3 style={{ margin: 0, fontSize: '20px' }}>Edit Festival: {editingEvent.name}</h3>
+                  </div>
+                  <button onClick={() => setEditingEvent(null)} className="btn btn--ink" style={{ padding: '6px' }}>
+                    <XIcon size={16} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleEditEventSubmit} style={{ display: 'grid', gap: '14px' }}>
+                  <label>
+                    Festival Name *
+                    <input
+                      required
+                      placeholder="e.g. Sri Krishna Janmashtami"
+                      value={editEventName}
+                      onChange={e => setEditEventName(e.target.value)}
+                    />
+                  </label>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <label>
+                      Date *
+                      <input
+                        required
+                        type="date"
+                        value={editEventDate}
+                        onChange={e => setEditEventDate(e.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Timing
+                      <input
+                        placeholder="05:00 PM Onwards"
+                        value={editEventTime}
+                        onChange={e => setEditEventTime(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <label>
+                      Category
+                      <select value={editEventCategory} onChange={e => setEditEventCategory(e.target.value)}>
+                        <option>Grand Annual Festival</option>
+                        <option>Major Appearance Day</option>
+                        <option>Vaishnava Celebration</option>
+                        <option>Special Satsang & Kirtan</option>
+                      </select>
+                    </label>
+
+                    <label>
+                      Location / Venue
+                      <input
+                        value={editEventLocation}
+                        onChange={e => setEditEventLocation(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <ImageUploader
+                    value={editEventImage}
+                    onChange={setEditEventImage}
+                    label="Festival Banner Image"
+                  />
+
+                  <label>
+                    Festival Description & Schedule *
+                    <textarea
+                      rows={3}
+                      required
+                      placeholder="Details regarding Abhishek, Chanting, Discourse, and Mahaprasadam Feast..."
+                      value={editEventDesc}
+                      onChange={e => setEditEventDesc(e.target.value)}
+                    />
+                  </label>
+
+                  <button className="btn btn--gold" style={{ width: '100%', padding: '12px', fontWeight: 700 }}>
+                    💾 Save Festival Changes
+                  </button>
+
+                  {editEventSuccess && <p className="success">{editEventSuccess}</p>}
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

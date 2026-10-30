@@ -94,12 +94,12 @@ async function seed() {
   await Service.deleteMany({});
   await Service.insertMany([
     {
-      title: 'Sadhu Bhojan & Annadaan Seva',
+      title: 'Sadhu Bhojan & Annadaan',
       subtitle: 'Nourishing the soul with Krishna Prasadam',
       category: 'Community Seva',
       description:
         'Daily distribution of sanctified Satvik vegetarian meals to sadhus, pilgrims, and local residents in need across Kopargaon and Ahmednagar.',
-      imageUrl: 'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?auto=format&fit=crop&w=800&q=80',
+      imageUrl: '/images/sadhu-bhojan.jpg',
       timing: 'Daily 12:30 PM - 02:00 PM',
       published: true,
     },
@@ -109,7 +109,7 @@ async function seed() {
       category: 'Education',
       description:
         'Equipping youth and college students with musical training (Mridanga, Harmonium, Kartals), Bhagavad Gita life skills, event leadership, and public speaking.',
-      imageUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=800&q=80',
+      imageUrl: '/images/youth-iyf.jpg',
       timing: 'Every Saturday & Sunday',
       published: true,
     },
@@ -119,7 +119,7 @@ async function seed() {
       category: 'Gau Seva',
       description:
         'Compassionate care for indigenous Desi cows, providing daily green fodder, natural shelter, and medical support.',
-      imageUrl: 'https://i.pinimg.com/736x/af/d1/3a/afd13a1cad7f876e957f35f200a1ba49.jpg',
+      imageUrl: '/images/gaushala.jpg',
       timing: 'Daily 08:00 AM - 06:00 PM',
       published: true,
     },
@@ -129,7 +129,7 @@ async function seed() {
       category: 'Spiritual Courses',
       description:
         'Systematic certificate courses on Bhagavad Gita As It Is, Srimad Bhagavatam, and stress management for students, working professionals, and families.',
-      imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=800&q=80',
+      imageUrl: '/images/gita-life.jpg',
       timing: 'Weekend Batches (Online & Offline)',
       published: true,
     },
@@ -139,7 +139,7 @@ async function seed() {
       category: 'Devotion',
       description:
         'Public chanting of Hare Krishna Maha Mantra with musical instruments, spreading transcendental joy throughout Kopargaon.',
-      imageUrl: 'https://i.pinimg.com/1200x/5a/39/63/5a39630f63ef88c48ae23e0d770ca253.jpg',
+      imageUrl: '/images/harinam.jpg',
       timing: 'Every Sunday 05:30 PM',
       published: true,
     },
@@ -149,7 +149,7 @@ async function seed() {
       category: 'Children Development',
       description:
         'Sunday school for children teaching Vedic stories, drama, devotional songs, shloka recitation, and moral ethics.',
-      imageUrl: 'https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=800&q=80',
+      imageUrl: '/images/samskar-children.jpg',
       timing: 'Sundays 10:00 AM - 12:00 PM',
       published: true,
     },
@@ -166,7 +166,7 @@ async function seed() {
       category: 'Grand Festival',
       description:
         'The grand chariot festival of Lord Jagannath, Baladeva, and Subhadra Devi moving through the streets of Kopargaon with thousands of devotees, ecstatic kirtan, and grand 56 bhog prasadam.',
-      imageUrl: 'https://i.pinimg.com/736x/34/68/a7/3468a74339a609a50b0a7b0f4fe6abda.jpg',
+      imageUrl: '/images/rathayatra.jpg',
       published: true,
     },
     {
@@ -177,7 +177,7 @@ async function seed() {
       category: 'Major Appearance Day',
       description:
         'The supreme appearance day of Lord Sri Krishna with continuous 24-hour Harinam Sankirtan, 108 kalash maha abhishek, cultural dramas by youth, and midnight feast.',
-      imageUrl: 'https://i.pinimg.com/736x/92/a6/29/92a6291a18a5d441418c1fc56f74e280.jpg',
+      imageUrl: '/images/radha-krishna.jpg',
       published: true,
     },
     {
@@ -188,7 +188,7 @@ async function seed() {
       category: 'Celebration',
       description:
         'Celebrating the victory of Lord Sri Ramacandra and righteous dharma over evil, featuring special Ramayana discourses, vibrant deepotsava, and prasadam feast.',
-      imageUrl: 'https://i.pinimg.com/1200x/c9/6e/02/c96e0239c130c0f256ae9b77ffda796b.jpg',
+      imageUrl: '/images/rama-vijaya.jpg',
       published: true,
     },
   ]);
@@ -201,6 +201,7 @@ async function seed() {
       description: 'Freshly cooked pure vegetarian satvik thali (rice, dal, sabji, roti, sweet) sanctified and offered to Lord Krishna.',
       availability: 'Served Daily for all visitors & sadhus',
       timing: '12:30 PM - 02:00 PM',
+      imageUrl: '/images/sadhu-bhojan.jpg',
       active: true,
     },
     {
@@ -208,13 +209,15 @@ async function seed() {
       description: 'Elaborate multi-course festive feast following Sunday satsang and ecstatic kirtan.',
       availability: 'Every Sunday evening',
       timing: '07:30 PM onwards',
+      imageUrl: '/images/sunday-feast.jpg',
       active: true,
     },
     {
-      name: 'Govinda Satvik Sweets & Snacks',
-      description: 'Pure desi ghee sweets (Laddoo, Peda, Gulab Jamun) and fresh snacks prepared with hygiene and devotion.',
+      name: 'Govinda Pure Ghee Sweets & Snacks',
+      description: 'Pure desi ghee sweets (Besan Laddoo, Kaju Katli, Peda, Gulab Jamun) and fresh snacks prepared with hygiene and devotion.',
       availability: 'Available throughout temple opening hours',
       timing: '07:00 AM - 09:00 PM',
+      imageUrl: '/images/govinda-sweets.jpg',
       active: true,
     },
   ]);
@@ -224,37 +227,37 @@ async function seed() {
   await GalleryImage.insertMany([
     {
       title: 'Sri Sri Radha Krishna Deity Darshan',
-      imageUrl: 'https://i.pinimg.com/736x/92/a6/29/92a6291a18a5d441418c1fc56f74e280.jpg',
+      imageUrl: '/images/radha-krishna.jpg',
       category: 'Deity Darshan',
       description: 'Morning Sringar darshan of the divine deities in Kopargaon.',
     },
     {
       title: 'Rathayatra Chariot Procession',
-      imageUrl: 'https://i.pinimg.com/736x/34/68/a7/3468a74339a609a50b0a7b0f4fe6abda.jpg',
+      imageUrl: '/images/rathayatra.jpg',
       category: 'Rathayatra',
       description: 'Devotees pulling the sacred chariot through Kopargaon.',
     },
     {
       title: 'Mother Cow Seva at Gaushala',
-      imageUrl: 'https://i.pinimg.com/736x/af/d1/3a/afd13a1cad7f876e957f35f200a1ba49.jpg',
+      imageUrl: '/images/gaushala.jpg',
       category: 'Gaushala',
       description: 'Nurturing indigenous Desi cows with love and green fodder.',
     },
     {
       title: 'Ecstatic Harinam Sankirtan',
-      imageUrl: 'https://i.pinimg.com/1200x/5a/39/63/5a39630f63ef88c48ae23e0d770ca253.jpg',
+      imageUrl: '/images/harinam.jpg',
       category: 'Kirtan',
       description: 'Soulful chanting of the Hare Krishna Maha Mantra.',
     },
     {
       title: 'Annadaan Community Feeding',
-      imageUrl: 'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?auto=format&fit=crop&w=1200&q=80',
+      imageUrl: '/images/sadhu-bhojan.jpg',
       category: 'Annadaan',
       description: 'Distributing warm, sanctified prasadam to all.',
     },
     {
       title: 'Deepotsava & Evening Gaura Aarti',
-      imageUrl: 'https://images.unsplash.com/photo-1605629921711-2f6b00c6bbf4?auto=format&fit=crop&w=1200&q=85',
+      imageUrl: '/images/deepotsava.jpg',
       category: 'Deity Darshan',
       description: 'Hundreds of ghee lamps offered during the sacred month of Damodara.',
     },

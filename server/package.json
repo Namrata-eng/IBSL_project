@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "seed-admin": "tsx src/scripts/seedAdmin.ts",
     "seed": "tsx src/scripts/seedKopargaon.ts",
-    "migrate:gallery": "tsx src/scripts/migrateGallery.ts"
+    "migrate:gallery": "tsx src/scripts/migrateGallery.ts",
+    "migrate:images": "tsx src/scripts/migrateImages.ts"
   },
   "dependencies": {
     "@types/nodemailer": "^8.0.1",

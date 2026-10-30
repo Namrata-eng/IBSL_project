@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import PageBanner from '../PageBanner';
 import { fetchEvents, saveEvent, deleteEvent, TempleEvent } from '../../utils/templeStore';
 import { CalendarIcon, PeacockFeatherIcon, ClockIcon, PlusIcon, TrashIcon, XIcon } from '../icons';
+import { ImageUploader } from '../ImageUploader';
 
 export function Events() {
   const [events, setEvents] = useState<TempleEvent[]>([]);
@@ -18,6 +19,17 @@ export function Events() {
   const [eventDesc, setEventDesc] = useState('');
   const [eventImage, setEventImage] = useState('');
   const [addSuccess, setAddSuccess] = useState('');
+
+  // Edit Event State
+  const [editingEvent, setEditingEvent] = useState<TempleEvent | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editImage, setEditImage] = useState('');
+  const [editSuccess, setEditSuccess] = useState('');
 
   const checkAdmin = () => {
     const token = localStorage.getItem('adminToken');
@@ -59,19 +71,6 @@ export function Events() {
     };
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setEventImage(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventName || !eventDate) return;
@@ -83,7 +82,7 @@ export function Events() {
       location: eventLocation,
       category: eventCategory,
       description: eventDesc || 'Auspicious festival celebration at ISKCON Kopargaon.',
-      imageUrl: eventImage || 'https://images.unsplash.com/photo-1567591414240-e2518e97f0e7?auto=format&fit=crop&w=1200&q=85',
+      imageUrl: eventImage || '/images/default-event.jpg',
     });
 
     setAddSuccess(`🎉 Festival "${eventName}" published & notification activated!`);
@@ -100,6 +99,42 @@ export function Events() {
     }, 1800);
   };
 
+  const handleStartEdit = (e: TempleEvent) => {
+    setEditingEvent(e);
+    setEditName(e.name);
+    setEditDate(e.date);
+    setEditTime(e.time || '');
+    setEditLocation(e.location || 'ISKCON Kopargaon Temple Sanctum');
+    setEditCategory(e.category || 'Grand Annual Festival');
+    setEditDesc(e.description || '');
+    setEditImage(e.imageUrl || '/images/default-event.jpg');
+    setEditSuccess('');
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEvent || !editName || !editDate) return;
+
+    await saveEvent({
+      _id: editingEvent._id,
+      name: editName,
+      date: editDate,
+      time: editTime || '06:00 PM Onwards',
+      location: editLocation,
+      category: editCategory,
+      description: editDesc,
+      imageUrl: editImage || '/images/default-event.jpg',
+    });
+
+    setEditSuccess(`🎉 Festival "${editName}" updated successfully!`);
+    const updated = await fetchEvents();
+    setEvents(updated);
+    setTimeout(() => {
+      setEditSuccess('');
+      setEditingEvent(null);
+    }, 1200);
+  };
+
   const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`Delete festival "${name}"?`)) {
       await deleteEvent(id);
@@ -111,112 +146,64 @@ export function Events() {
   const getEventBadge = (dateStr: string) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const eventDate = new Date(dateStr);
-    eventDate.setHours(0, 0, 0, 0);
+    const eventDateObj = new Date(dateStr);
+    eventDateObj.setHours(0, 0, 0, 0);
 
-    const diff = Math.round((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    if (diff === 0) return { label: '🎉 TODAY AT TEMPLE', class: 'today' };
-    if (diff === 1) return { label: '🔔 TOMORROW (1 DAY TO GO)', class: 'tomorrow' };
-    if (diff < 0) return { label: 'Concluded', class: 'past' };
-    return { label: `In ${diff} Days`, class: 'upcoming' };
+    const diffDays = Math.ceil((eventDateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return { label: 'TODAY', class: 'today' };
+    if (diffDays === 1) return { label: 'TOMORROW', class: 'tomorrow' };
+    if (diffDays > 1 && diffDays <= 7) return { label: `IN ${diffDays} DAYS`, class: 'soon' };
+    if (diffDays < 0) return { label: 'PAST FESTIVAL', class: 'past' };
+    return { label: 'UPCOMING', class: 'upcoming' };
   };
 
   return (
     <main className="page">
       <PageBanner
-        lead="ANCIENT VAISHNAVA FESTIVALS"
-        title="Grand Celebrations & Festivals"
-        subtitle="Experience the transcendental ecstasy of Sri Jagannath Rathayatra, Janmashtami, and spiritual gatherings in Kopargaon."
+        lead="VAISHNAVA FESTIVAL CALENDAR"
+        title="Upcoming Utsavs & Celebrations"
+        subtitle="Join us at ISKCON Kopargaon for transcendent celebrations, kirtans, abhishek, and satvik prasadam."
       />
 
-      {isAdmin && (
-        <div
-          className="card"
-          style={{
-            maxWidth: '1100px',
-            margin: '0 auto 36px',
-            padding: '20px 26px',
-            background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.2) 0%, rgba(12, 25, 40, 0.95) 100%)',
-            border: '2px solid var(--gold)',
-            boxShadow: '0 0 24px rgba(212, 175, 55, 0.25)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '16px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ fontSize: '26px' }}>👑</span>
-            <div>
-              <strong style={{ color: 'var(--gold-bright)', fontSize: '16px' }}>
-                Admin Festival Publishing Controls Active
-              </strong>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--ink-soft)' }}>
-                Add new festivals here to automatically trigger 1-day before and same-day notifications.
-              </p>
-            </div>
-          </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+        <p style={{ margin: 0, color: 'var(--ink-faint)', fontSize: '14.5px' }}>
+          Showing <strong>{events.length}</strong> upcoming festivals & auspicious appearance tithis in Kopargaon.
+        </p>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="btn btn--gold"
-              style={{ padding: '10px 22px', fontSize: '14px', fontWeight: 700 }}
-            >
-              <PlusIcon size={18} />
-              <span>+ Add New Festival Now</span>
-            </button>
-            <Link to="/admin" className="btn btn--ink" style={{ padding: '10px 18px', fontSize: '13px' }}>
-              Full Admin Console
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {showAddModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 250,
-            background: 'rgba(4, 10, 18, 0.92)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-            backdropFilter: 'blur(20px)',
-          }}
-          onClick={() => setShowAddModal(false)}
-        >
-          <div
-            className="card"
-            style={{
-              maxWidth: '600px',
-              width: '100%',
-              padding: '32px',
-              border: '2px solid var(--gold)',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.8), 0 0 30px rgba(212,175,55,0.3)',
-              position: 'relative',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-            onClick={e => e.stopPropagation()}
+        {isAdmin && (
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="btn btn--gold"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 18px', fontWeight: 700 }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <PlusIcon size={18} />
+            <span>Publish Upcoming Festival</span>
+          </button>
+        )}
+      </div>
+
+      {/* Add Festival Modal */}
+      {showAddModal && (
+        <div className="modal-backdrop" onClick={() => setShowAddModal(false)}>
+          <div className="modal" style={{ maxWidth: '580px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '22px' }}>🎉</span>
-                <h3 style={{ margin: 0, fontSize: '20px', color: 'var(--gold-bright)' }}>Publish New Festival</h3>
+                <CalendarIcon size={22} />
+                <h3 style={{ margin: 0, fontSize: '20px' }}>Publish Upcoming Festival</h3>
               </div>
-              <button onClick={() => setShowAddModal(false)} style={{ color: '#fff', padding: '6px' }}>
-                <XIcon size={18} />
+              <button onClick={() => setShowAddModal(false)} className="btn btn--ink" style={{ padding: '6px' }}>
+                <XIcon size={16} />
               </button>
             </div>
 
+            <p style={{ color: 'var(--ink-faint)', fontSize: '13.5px', marginBottom: '20px' }}>
+              Publishing will immediately notify devotees on the navbar alert bell and show on the homepage.
+            </p>
+
             <form onSubmit={handleAddSubmit} style={{ display: 'grid', gap: '14px' }}>
               <label>
-                Festival / Event Name *
+                Festival Name *
                 <input
                   required
                   placeholder="e.g. Sri Balarama Jayanti Mahotsav"
@@ -227,7 +214,7 @@ export function Events() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <label>
-                  Festival Date *
+                  Date *
                   <input
                     required
                     type="date"
@@ -235,11 +222,10 @@ export function Events() {
                     onChange={e => setEventDate(e.target.value)}
                   />
                 </label>
-
                 <label>
-                  Timings
+                  Timing
                   <input
-                    placeholder="e.g. 05:00 PM - 09:00 PM"
+                    placeholder="05:30 PM Onwards"
                     value={eventTime}
                     onChange={e => setEventTime(e.target.value)}
                   />
@@ -268,24 +254,11 @@ export function Events() {
                 </label>
               </div>
 
-              <div>
-                <label style={{ marginBottom: '6px' }}>Choose Festival Banner from Computer</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  style={{ padding: '8px', background: 'rgba(255,255,255,0.06)' }}
-                />
-              </div>
-
-              <label>
-                Or Paste Image Banner URL
-                <input
-                  placeholder="https://images.unsplash.com/..."
-                  value={eventImage}
-                  onChange={e => setEventImage(e.target.value)}
-                />
-              </label>
+              <ImageUploader
+                value={eventImage}
+                onChange={setEventImage}
+                label="Festival Banner Image"
+              />
 
               <label>
                 Festival Description & Schedule *
@@ -308,6 +281,100 @@ export function Events() {
         </div>
       )}
 
+      {/* Edit Festival Modal */}
+      {editingEvent && (
+        <div className="modal-backdrop" onClick={() => setEditingEvent(null)}>
+          <div className="modal" style={{ maxWidth: '580px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CalendarIcon size={22} />
+                <h3 style={{ margin: 0, fontSize: '20px' }}>Edit Festival: {editingEvent.name}</h3>
+              </div>
+              <button onClick={() => setEditingEvent(null)} className="btn btn--ink" style={{ padding: '6px' }}>
+                <XIcon size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} style={{ display: 'grid', gap: '14px' }}>
+              <label>
+                Festival Name *
+                <input
+                  required
+                  placeholder="e.g. Sri Krishna Janmashtami"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                />
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <label>
+                  Date *
+                  <input
+                    required
+                    type="date"
+                    value={editDate}
+                    onChange={e => setEditDate(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Timing
+                  <input
+                    placeholder="05:00 PM Onwards"
+                    value={editTime}
+                    onChange={e => setEditTime(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <label>
+                  Category
+                  <select value={editCategory} onChange={e => setEditCategory(e.target.value)}>
+                    <option>Grand Annual Festival</option>
+                    <option>Major Appearance Day</option>
+                    <option>Festival Celebration</option>
+                    <option>Rathayatra</option>
+                    <option>Sankirtan Utsav</option>
+                    <option>Youth Satsang</option>
+                  </select>
+                </label>
+
+                <label>
+                  Location / Venue
+                  <input
+                    value={editLocation}
+                    onChange={e => setEditLocation(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <ImageUploader
+                value={editImage}
+                onChange={setEditImage}
+                label="Festival Banner Image"
+              />
+
+              <label>
+                Festival Description & Schedule *
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Details regarding Abhishek, Chanting, Discourse, and Mahaprasadam Feast..."
+                  value={editDesc}
+                  onChange={e => setEditDesc(e.target.value)}
+                />
+              </label>
+
+              <button className="btn btn--gold" style={{ width: '100%', padding: '12px', fontWeight: 700 }}>
+                💾 Save Festival Changes
+              </button>
+
+              {editSuccess && <p className="success">{editSuccess}</p>}
+            </form>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <p style={{ textAlign: 'center', color: 'var(--gold)', padding: '60px 0' }}>Loading sacred festival calendar…</p>
       ) : (
@@ -321,29 +388,52 @@ export function Events() {
                   style={e.imageUrl ? { backgroundImage: `url(${e.imageUrl})` } : {}}
                 >
                   {isAdmin && (
-                    <button
-                      onClick={() => handleDelete(e._id, e.name)}
-                      style={{
-                        position: 'absolute',
-                        top: '12px',
-                        right: '12px',
-                        background: 'rgba(239, 68, 68, 0.85)',
-                        color: '#fff',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        backdropFilter: 'blur(8px)',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                      }}
-                      title="Remove Festival"
-                    >
-                      <TrashIcon size={14} />
-                      <span>Delete</span>
-                    </button>
+                    <div style={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', gap: '6px' }}>
+                      <button
+                        onClick={() => handleStartEdit(e)}
+                        style={{
+                          background: 'rgba(212, 175, 55, 0.95)',
+                          color: '#1a1005',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          backdropFilter: 'blur(8px)',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                          cursor: 'pointer',
+                          border: 'none',
+                        }}
+                        title="Edit Festival"
+                      >
+                        <span>✏️</span>
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        onClick={() => handleDelete(e._id, e.name)}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.85)',
+                          color: '#fff',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          backdropFilter: 'blur(8px)',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                          cursor: 'pointer',
+                          border: 'none',
+                        }}
+                        title="Remove Festival"
+                      >
+                        <TrashIcon size={14} />
+                        <span>Delete</span>
+                      </button>
+                    </div>
                   )}
                 </div>
 

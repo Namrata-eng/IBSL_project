@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import './Hero.css';
 
-const HOME_BACKGROUND_VIDEO_URL = '/videos/home-background.mp4';
-const FALLBACK_VIDEO_URL = '/hero.mp4';
+const HERO_VIDEO_URL = '/hero.mp4';
+const HERO_POSTER_IMAGE = '/krishna_hero.jpg';
 
 const STATS = [
   { figure: '50K+', label: 'Pilgrims', foot: 'Monthly Devotees' },
@@ -57,14 +57,14 @@ export function Hero() {
         <video
           ref={videoRef}
           className="hero__video"
+          poster={HERO_POSTER_IMAGE}
           autoPlay
           muted
           loop
           playsInline
           preload="auto"
         >
-          <source src={HOME_BACKGROUND_VIDEO_URL} type="video/mp4" />
-          <source src={FALLBACK_VIDEO_URL} type="video/mp4" />
+          <source src={HERO_VIDEO_URL} type="video/mp4" />
         </video>
         <div className="hero__scrim" />
         <div className="hero__god-rays" />
