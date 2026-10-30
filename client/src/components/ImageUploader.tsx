@@ -53,10 +53,11 @@ export function ImageUploader({
       const formData = new FormData();
       formData.append('image', file);
 
-      const token =
+      const rawToken =
         localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+      const token = typeof rawToken === 'string' ? rawToken.replace(/^Bearer\s+/i, '').trim() : '';
       const headers: Record<string, string> = {};
-      if (token) {
+      if (token && token.split('.').length === 3 && !token.startsWith('mock_')) {
         headers.Authorization = `Bearer ${token}`;
       }
 

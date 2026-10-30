@@ -7,9 +7,12 @@ export interface AuthRequest extends Request {
 }
 
 export const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization || '';
   const token =
-    req.headers.authorization?.replace('Bearer ', '') ||
-    (typeof req.query.token === 'string' ? req.query.token : undefined);
+    (authHeader.replace(/^Bearer\s+/i, '').replace(/^Bearer\s+/i, '').trim()) ||
+    (typeof req.query.token === 'string'
+      ? req.query.token.replace(/^Bearer\s+/i, '').trim()
+      : undefined);
 
   if (!token) return res.status(401).json({ message: 'Authentication required' });
 

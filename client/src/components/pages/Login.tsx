@@ -11,10 +11,11 @@ export function Login() {
   const [loading, setLoading] = useState(false);
 
   const performLogin = (token: string, userObj: any) => {
-    localStorage.setItem('userToken', token);
+    const cleanToken = typeof token === 'string' ? token.replace(/^Bearer\s+/i, '').trim() : '';
+    localStorage.setItem('userToken', cleanToken);
     localStorage.setItem('userData', JSON.stringify(userObj));
     if (userObj?.role === 'admin' || userObj?.email?.includes('admin')) {
-      localStorage.setItem('adminToken', token);
+      localStorage.setItem('adminToken', cleanToken);
     }
     window.dispatchEvent(new Event('storage'));
     navigate(userObj?.role === 'admin' ? '/admin' : '/');
@@ -31,26 +32,16 @@ export function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      if (r.ok) {
-        const d = await r.json();
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.token && typeof d.token === 'string') {
         performLogin(d.token, d.user);
         return;
+      } else {
+        setError(d.message || 'Invalid email or password.');
       }
-    } catch {}
-
-    // Offline fallback
-    if (email.trim().toLowerCase() === 'admin@iskconkopargaon.org' && password === 'Krishna@108') {
-      performLogin('mock_admin_token_' + Date.now(), {
-        _id: 'adm_108', name: 'Temple Admin',
-        email: 'admin@iskconkopargaon.org', role: 'admin',
-      });
-    } else if (email && password.length >= 6) {
-      performLogin('mock_devotee_token_' + Date.now(), {
-        _id: 'dev_' + Date.now(), name: email.split('@')[0],
-        email, role: 'devotee',
-      });
-    } else {
-      setError('Please check your email and password.');
+    } catch {
+      setError('Unable to reach server. Please check your connection and try again.');
+    } finally {
       setLoading(false);
     }
   };

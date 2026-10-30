@@ -83,22 +83,47 @@ export function Dashboard() {
   const [modalActionLoading, setModalActionLoading] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
 
+  const getValidAdminToken = (): string | null => {
+    const raw = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    if (!raw || typeof raw !== 'string') return null;
+    const token = raw.replace(/^Bearer\s+/i, '').trim();
+    if (token.split('.').length !== 3 || token.startsWith('mock_') || token === 'undefined' || token === 'null') {
+      return null;
+    }
+    return token;
+  };
+
+  const handleAuthError = () => {
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('userToken');
+    localStorage.removeItem('userData');
+    window.dispatchEvent(new Event('storage'));
+    navigate('/login');
+  };
+
   useEffect(() => {
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
-    const userData = localStorage.getItem('userData');
-    if (!token && !userData) {
-      navigate('/login');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
       return;
     }
     loadAllData();
   }, [navigate]);
 
   const loadInquiries = async () => {
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const res = await fetch('/api/inquiries', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setInquiries(data.data || []);
@@ -110,17 +135,25 @@ export function Dashboard() {
 
   const handleToggleInquiryStatus = async (inq: any) => {
     const nextStatus = inq.status === 'resolved' ? 'new' : 'resolved';
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     setInquiryActionLoading(true);
     try {
       const res = await fetch(`/api/inquiries/${inq._id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ status: nextStatus }),
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         await loadInquiries();
       }
@@ -133,12 +166,20 @@ export function Dashboard() {
 
   const handleDeleteInquiry = async (id: string, name: string) => {
     if (!window.confirm(`Delete query from "${name}"?`)) return;
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const res = await fetch(`/api/inquiries/${id}`, {
         method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         await loadInquiries();
       }
@@ -149,19 +190,27 @@ export function Dashboard() {
 
   const handleToggleEventPublish = async (ev: TempleEvent) => {
     const nextPublished = ev.published === false;
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const res = await fetch(`/api/events/${ev._id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           published: nextPublished,
           status: nextPublished ? 'approved' : 'hidden',
         }),
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         const updated = await fetchEvents(true);
         setEvents(updated);
@@ -182,12 +231,20 @@ export function Dashboard() {
 
   const loadDonations = async (statusFilter = donationFilter, page = donationPage) => {
     setLoadingDonations(true);
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const url = `/api/donations?page=${page}&limit=15${statusFilter !== 'all' ? `&status=${statusFilter}` : ''}`;
       const res = await fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setDonations(data.items || []);
@@ -214,11 +271,19 @@ export function Dashboard() {
   };
 
   const handleDownloadCsv = async () => {
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const res = await fetch('/api/donations/export', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
@@ -255,11 +320,19 @@ export function Dashboard() {
     }
 
     setLoadingScreenshot(true);
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const res = await fetch(`/api/donations/${donation._id}/screenshot`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         const blob = await res.blob();
         setScreenshotBlobUrl(URL.createObjectURL(blob));
@@ -285,16 +358,24 @@ export function Dashboard() {
   const handleVerifyDonation = async () => {
     if (!selectedDonation) return;
     setModalActionLoading(true);
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const res = await fetch(`/api/donations/${selectedDonation._id}/verify`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ deleteScreenshotNow: verifyDeleteScreenshot }),
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         setModalMessage('✓ Donation verified successfully!');
         await loadDonations();
@@ -317,19 +398,27 @@ export function Dashboard() {
       return;
     }
     setModalActionLoading(true);
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const res = await fetch(`/api/donations/${selectedDonation._id}/reject`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           reason: rejectReason.trim(),
           deleteScreenshotNow: verifyDeleteScreenshot,
         }),
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         setModalMessage('✕ Donation marked as rejected.');
         await loadDonations();
@@ -356,12 +445,20 @@ export function Dashboard() {
     }
 
     setModalActionLoading(true);
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const token = getValidAdminToken();
+    if (!token) {
+      handleAuthError();
+      return;
+    }
     try {
       const res = await fetch(`/api/donations/${selectedDonation._id}/screenshot`, {
         method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401) {
+        handleAuthError();
+        return;
+      }
       if (res.ok) {
         if (screenshotBlobUrl) {
           URL.revokeObjectURL(screenshotBlobUrl);
@@ -782,7 +879,7 @@ export function Dashboard() {
                               </span>
                             ) : (
                               <img
-                                src={`/api/donations/${d._id}/screenshot?token=${localStorage.getItem('adminToken') || ''}`}
+                                src={`/api/donations/${d._id}/screenshot?token=${getValidAdminToken() || ''}`}
                                 alt="Proof"
                                 style={{
                                   width: '38px',

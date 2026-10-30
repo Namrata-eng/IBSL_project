@@ -1,5 +1,5 @@
 import React from 'react';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Chatbot from './components/Chatbot';
@@ -27,15 +27,12 @@ import Dashboard from './components/pages/Dashboard';
 import './admin.css';
 
 export function App() {
-  const loc = useLocation();
-  const isAdmin = loc.pathname.startsWith('/admin') && loc.pathname !== '/admin/login';
-
   return (
     <>
       {/* Ambient Devotional Particle Layer (Lotus Petals & Light Motes) */}
       <DevotionalBackground />
 
-      {!isAdmin && <Navbar />}
+      <Navbar />
 
       <Routes>
         <Route path="/" element={<Home />} />
@@ -60,12 +57,8 @@ export function App() {
         <Route path="/admin" element={<Dashboard />} />
       </Routes>
 
-      {!isAdmin && (
-        <>
-          <Footer />
-          <Chatbot />
-        </>
-      )}
+      <Footer />
+      <Chatbot />
     </>
   );
 }

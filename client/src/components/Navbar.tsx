@@ -32,16 +32,22 @@ export function Navbar() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const checkUser = () => {
-    const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+    const adminToken = localStorage.getItem('adminToken');
+    const userToken = localStorage.getItem('userToken');
     const storedUser = localStorage.getItem('userData');
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsed = JSON.parse(storedUser);
+        setUser(parsed);
+        return;
       } catch {
         setUser(null);
       }
-    } else if (token) {
+    }
+    if (adminToken && adminToken.split('.').length === 3 && !adminToken.startsWith('mock_')) {
       setUser({ role: 'admin', name: 'Temple Admin' });
+    } else if (userToken && userToken.split('.').length === 3 && !userToken.startsWith('mock_')) {
+      setUser({ role: 'devotee', name: 'Devotee' });
     } else {
       setUser(null);
     }
@@ -84,8 +90,8 @@ export function Navbar() {
     return location.pathname.startsWith(path);
   };
 
-  const isMoreActive = MORE_LINKS.some(l => location.pathname.startsWith(l.path));
-  const isAdmin = user?.role === 'admin' || !!localStorage.getItem('adminToken');
+  const isMoreActive = MORE_LINKS.some(l => location.pathname.startsWith(l.path)) || (location.pathname.startsWith('/admin') && location.pathname !== '/admin/login');
+  const isAdmin = user?.role === 'admin' || (!!localStorage.getItem('adminToken') && localStorage.getItem('adminToken')?.split('.').length === 3 && !localStorage.getItem('adminToken')?.startsWith('mock_'));
 
   return (
     <header className="nav">
@@ -138,6 +144,16 @@ export function Navbar() {
                   {label}
                 </Link>
               ))}
+              {isAdmin && (
+                <Link
+                  to="/admin"
+                  className={isActive('/admin') ? 'is-dropdown-active' : ''}
+                  onClick={() => setDropdownOpen(false)}
+                  style={{ color: 'var(--gold-bright)', fontWeight: 600 }}
+                >
+                  👑 Admin Console
+                </Link>
+              )}
             </div>
           </div>
         </nav>
@@ -230,6 +246,17 @@ export function Navbar() {
                 {isActive(path) && <span style={{ color: 'var(--gold)' }}>●</span>}
               </Link>
             ))}
+            {isAdmin && (
+              <Link
+                to="/admin"
+                className={isActive('/admin') ? 'is-active' : ''}
+                onClick={() => setOpen(false)}
+                style={{ color: 'var(--gold-bright)', fontWeight: 600 }}
+              >
+                <span>👑 Admin Console</span>
+                {isActive('/admin') && <span style={{ color: 'var(--gold)' }}>●</span>}
+              </Link>
+            )}
             <Link to="/search" onClick={() => setOpen(false)}>
               <span>Search Temple Directory</span>
               <SearchIcon size={16} />

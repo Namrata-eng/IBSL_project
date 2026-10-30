@@ -171,8 +171,18 @@ export async function fetchEvents(all: boolean = false): Promise<TempleEvent[]> 
   return DEFAULT_EVENTS;
 }
 
+const getCleanToken = (): string | null => {
+  const raw = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+  if (!raw || typeof raw !== 'string') return null;
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
+  if (token.split('.').length !== 3 || token.startsWith('mock_') || token === 'undefined' || token === 'null') {
+    return null;
+  }
+  return token;
+};
+
 export async function saveEvent(eventData: Omit<TempleEvent, '_id'> & { _id?: string }): Promise<TempleEvent> {
-  const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+  const token = getCleanToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -230,7 +240,7 @@ export async function saveEvent(eventData: Omit<TempleEvent, '_id'> & { _id?: st
 }
 
 export async function deleteEvent(id: string): Promise<boolean> {
-  const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+  const token = getCleanToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -295,7 +305,7 @@ export async function fetchGallery(): Promise<GalleryPhoto[]> {
 export async function saveGalleryPhoto(
   photoInput: FormData | (Omit<GalleryPhoto, '_id'> & { _id?: string; file?: File })
 ): Promise<GalleryPhoto> {
-  const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+  const token = getCleanToken();
   let formData: FormData;
 
   if (photoInput instanceof FormData) {
@@ -380,7 +390,7 @@ export async function saveGalleryPhoto(
 }
 
 export async function deleteGalleryPhoto(id: string): Promise<boolean> {
-  const token = localStorage.getItem('adminToken') || localStorage.getItem('userToken');
+  const token = getCleanToken();
   try {
     if (token) {
       await fetch(`/api/gallery/${id}`, {

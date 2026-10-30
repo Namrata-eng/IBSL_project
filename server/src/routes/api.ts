@@ -294,12 +294,11 @@ router.post(
 router.get(
   '/auth/me',
   safe(async (req: any, res: any) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').replace(/^Bearer\s+/i, '').trim();
+    if (!token || token.split('.').length !== 3) {
       return res.status(401).json({ message: 'Not authenticated' });
     }
-
-    const token = authHeader.split(' ')[1];
     try {
       const decoded: any = jwt.verify(token, JWT_SECRET);
       const user = (await User.findById(decoded.id)) || (await Admin.findById(decoded.id));
@@ -691,10 +690,10 @@ router.post(
 
       // Extract optional userId if token is present
       let userId: any = undefined;
-      const authHeader = req.headers.authorization;
-      if (authHeader?.startsWith('Bearer ')) {
+      const authHeader = req.headers.authorization || '';
+      const token = authHeader.replace(/^Bearer\s+/i, '').replace(/^Bearer\s+/i, '').trim();
+      if (token && token.split('.').length === 3) {
         try {
-          const token = authHeader.split(' ')[1];
           const decoded: any = jwt.verify(token, JWT_SECRET);
           if (decoded?.id && mongoose.isValidObjectId(decoded.id)) userId = decoded.id;
         } catch {}

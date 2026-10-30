@@ -156,8 +156,11 @@ export function DonationForm({
 
       // Include Bearer token if user happens to be logged in
       const headers: Record<string, string> = {};
-      const token = localStorage.getItem('userToken') || localStorage.getItem('adminToken');
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const rawToken = localStorage.getItem('userToken') || localStorage.getItem('adminToken');
+      const token = typeof rawToken === 'string' ? rawToken.replace(/^Bearer\s+/i, '').trim() : '';
+      if (token && token.split('.').length === 3 && !token.startsWith('mock_')) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
       // IMPORTANT: Do NOT manually set Content-Type so browser sets multipart boundary
       const res = await fetch('/api/donations', {
